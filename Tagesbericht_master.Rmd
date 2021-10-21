@@ -1516,4 +1516,4 @@ fig_KontaktP
 
 ******
 
-Erstellt am `r format(Sys.Date(), "%d.%m.%Y")` von *Stabsstelle Versorgungsmanagement Gesundheit und Pflege, GSR-RL-VM*. 
+Erstellt am `r format(Sys.Date(), "%d.%m.%Y")` von *Stabsstelle Versorgungsmanagement Gesundheit und Pflege, GSR-GVO-VM*. 
