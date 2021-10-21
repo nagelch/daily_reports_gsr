@@ -7,6 +7,10 @@
 
 # functions --------------------------------------------------------------------
 
+## source functions for age tables and incidences
+source(paste0(path_tagesberichte, "scripts/25_functions_age.R"),
+       encoding = 'utf-8')
+
 #'@details We need to report the delta to the previous day. This delta needs
 #' to have a prefix indicating either an increase "+" or decrease "-". The
 #' sign_char function retrieves the sign and turns it into a character.
