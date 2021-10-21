@@ -1,13 +1,6 @@
 
 # libraries --------------------------------------------------------------------
 
-install.packages("kableExtra")
-install.packages("synthpop")
-install.packages("writexl")
-install.packages("stringr")
-install.packages("xlsx")
-install.packages("zoo")
-
 library(deSolve)
 library(R0)
 library(tidyverse)
