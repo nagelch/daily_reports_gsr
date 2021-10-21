@@ -1,0 +1,168 @@
+---
+title: "&nbsp;"
+output:
+    html_document:
+      theme: united
+      highlight: tango
+      df_print: paged
+      toc_float: true
+      toc: true
+      toc_depth: 2
+params:
+    evalThirdParty: FALSE
+---
+
+```{r setup, echo = FALSE, warning=FALSE, message=FALSE, include=TRUE}
+
+## libraries
+library(tidyverse)
+library(kableExtra)
+library(knitr)
+library(checkmate)
+
+## path variables
+path_tagesberichte <- "L:/Thematische-Ordner/Corona/R_Projekte/Tagesbericht/"
+path_tagesberichte_branddir <- "M:/BFM/Austausch-RGU-BD/Reports_RGU/"
+
+source(paste0(path_tagesberichte, "scripts/22_path_variables.R"),
+       encoding = 'utf-8')
+knitr::opts_knit$set(root.dir = wd_path)
+
+
+## set root directory for this markdwon project
+knitr::opts_knit$set(root.dir = wd_path)
+
+## functions
+source(paste0(path_tagesberichte, "scripts/25_functions_age.R"),
+       encoding = 'utf-8')
+
+## read data (recent)
+octo_data <-
+  readxl::read_excel(
+    paste0(user_input, "octoware_kurz.xlsx"),
+    guess_max = 100000
+  )
+
+```
+
+```{r RGU_logo, echo=FALSE, fig.cap="", out.width = '30%', fig.align="right"}
+include_graphics(paste0(wd_path3,"LHM_Logo.png"))
+```
+
+# Sonderauswertung Hospitalisierungen und Impfstatus
+
+```{r dateOfReport, echo=FALSE, warning=FALSE, message=FALSE} 
+
+date_table <-  as.data.frame(c(format(Sys.Date(), "%d.%m.%Y"))) %>%
+  magrittr::set_colnames("")
+kable(date_table)
+```
+
+
+# Aktuell Hospitalisierte
+
+## - insgesamt
+```{r aktuell_hosp_all, echo=FALSE, warning=FALSE, message=FALSE}
+
+age_data <- gather_age_groups(
+  input_data = octo_data,
+  subgroup = "aktuell hospitalisiert",
+  vacc_status = 'alle',
+  min_date = NULL,
+  max_date = NULL,
+  age_intervals = c(0,6,11,21,41,61,81),
+  detailed_per_date = FALSE,
+  return_filtered = FALSE)
+
+make_age_tab(age_data)
+
+```
+
+## - vollständig geimpft
+```{r aktuell_hosp_vac, echo=FALSE, warning=FALSE, message=FALSE}
+
+age_data <- gather_age_groups(
+  input_data = octo_data,
+  subgroup = "aktuell hospitalisiert",
+  vacc_status = 'vollständig geimpft',
+  min_date = NULL,
+  max_date = NULL,
+  age_intervals = c(0,6,11,21,41,61,81),
+  detailed_per_date = FALSE,
+  return_filtered = FALSE)
+
+make_age_tab(age_data)
+
+```
+
+## - ungeimpft
+```{r aktuell_hosp_nonvac, echo=FALSE, warning=FALSE, message=FALSE}
+
+age_data <- gather_age_groups(
+  input_data = octo_data,
+  subgroup = "aktuell hospitalisiert",
+  vacc_status = 'ungeimpft',
+  min_date = NULL,
+  max_date = NULL,
+  age_intervals = c(0,6,11,21,41,61,81),
+  detailed_per_date = FALSE,
+  return_filtered = FALSE)
+
+make_age_tab(age_data)
+
+```
+
+# Aktuell ICU
+
+## - insgesamt
+```{r aktuell_icu_all, echo=FALSE, warning=FALSE, message=FALSE}
+
+age_data <- gather_age_groups(
+  input_data = octo_data,
+  subgroup = "aktuell ICU",
+  vacc_status = 'alle',
+  min_date = NULL,
+  max_date = NULL,
+  age_intervals = c(0,6,11,21,41,61,81),
+  detailed_per_date = FALSE,
+  return_filtered = FALSE)
+
+make_age_tab(age_data)
+
+```
+
+
+## - vollständig geimpft
+```{r aktuell_icu_vac, echo=FALSE, warning=FALSE, message=FALSE}
+
+age_data <- gather_age_groups(
+  input_data = octo_data,
+  subgroup = "aktuell ICU",
+  vacc_status = 'vollständig geimpft',
+  min_date = NULL,
+  max_date = NULL,
+  age_intervals = c(0,6,11,21,41,61,81),
+  detailed_per_date = FALSE,
+  return_filtered = FALSE)
+
+make_age_tab(age_data)
+
+```
+
+
+## - ungeimpft
+```{r aktuell_icu_nonvac, echo=FALSE, warning=FALSE, message=FALSE}
+
+age_data <- gather_age_groups(
+  input_data = octo_data,
+  subgroup = "aktuell ICU",
+  vacc_status = 'ungeimpft',
+  min_date = NULL,
+  max_date = NULL,
+  age_intervals = c(0,6,11,21,41,61,81),
+  detailed_per_date = FALSE,
+  return_filtered = FALSE)
+
+make_age_tab(age_data)
+
+```

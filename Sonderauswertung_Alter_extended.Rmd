@@ -1,0 +1,1042 @@
+---
+title: "&nbsp;"
+output:
+    html_document:
+      theme: united
+      highlight: tango
+      df_print: paged
+      toc_float: true
+      toc: true
+      toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+
+wd_path <- paste0("L://Thematische-Ordner//Corona//",
+                  "R_Projekte//Tagesbericht//docs//")
+
+wd_path1 <- paste0("L://Thematische-Ordner//Corona//",
+                   "R_Projekte//Tagesbericht//data//derived//")
+
+wd_path2 <- paste0("L://Thematische-Ordner//Corona//",
+                   "R_Projekte//Tagesbericht//data//input//")
+
+wd_path3 <- paste0("L://Thematische-Ordner//Corona//",
+                   "R_Projekte//Tagesbericht//data//img//")
+
+wd_path4 <- "M:/BFM/Austausch-RGU-BD/Reports RGU/"
+
+wd_path5 <- paste0("L://Thematische-Ordner//Corona//",
+                   "R_Projekte//Tagesbericht//scripts//")
+
+
+knitr::opts_knit$set(root.dir = wd_path)
+knitr::opts_chunk$set(echo=FALSE)
+
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(tidyr)
+library(magrittr)
+library(htmltools)
+library(ggplot2)
+library(reshape2)
+library(viridis)
+library(plotly)
+
+# load data --------------------------------------------------------------------
+
+## set dummy for exports to BFM
+export_to_bmf <- FALSE
+
+## source data preparation script
+source(file = paste0(wd_path5, "11_daily_reports_data.R"), encoding = 'utf-8')
+source(file = paste0(wd_path5, "16_prepare_AgeGroups_data.R"), encoding = 'utf-8')
+
+## read data
+octo_data <-
+  readxl::read_excel(
+    paste0(wd_path2, "octoware.xlsx")
+  )
+
+
+```
+
+```{r RGU_logo, echo=FALSE, fig.cap="", out.width = '30%', fig.align="right"}
+include_graphics(paste0(wd_path3,"rgulogo.png"))
+```
+
+# Sonderauswertung Altersverteilung (ENTWURF)
+
+```{r dateOfReport, echo=FALSE} 
+
+date_table <-  as.data.frame(c(format(Sys.Date(), "%d.%m.%Y"))) %>%
+  set_colnames("")
+kable(date_table)
+```
+
+# Meldefälle
+
+Die nachfolgenden Abbildungen illustrieren die Altersverteilung der Meldefälle im Zeitverlauf ab Kalenderwoche 10. Abgebildet ist das Alter der gemeldeten Fälle pro Kalenderwoche jeweils als absolute Fallzahlen, wie auch als prozentuale Anteile, um Veränderungen in der Zusammensetzung besser kenntlich zu machen.
+
+## Altersverteilung
+
+```{r Altersverteilung, echo=FALSE}
+
+## select data
+age_tab <- cbind(
+  
+  recent_data_3d %>%
+    filter(Datum == max(Datum)) %>%
+    dplyr::select(
+      Datum,
+      age_0to5_sum, 
+      age_6to10_sum,
+      age_11to20_sum,
+      age_21to40_sum,
+      age_41to60_sum,
+      age_61to80_sum,
+      age_81plus_sum
+    ) %>% t(),
+  
+  recent_data_3d %>%
+    filter(Datum == max(Datum)) %>%
+    dplyr::select(
+      Datum,
+      age_0to5_w, 
+      age_6to10_w,
+      age_11to20_w,
+      age_21to40_w,
+      age_41to60_w,
+      age_61to80_w,
+      age_81plus_w
+    ) %>% t(),
+
+  recent_data_3d %>%
+    filter(Datum == max(Datum)) %>%
+    dplyr::select(
+      Datum,
+      age_0to5_m, 
+      age_6to10_m,
+      age_11to20_m,
+      age_21to40_m,
+      age_41to60_m,
+      age_61to80_m,
+      age_81plus_m
+    ) %>% t()
+) %>% 
+  as.data.frame() 
+
+## set colnames and rownames
+colnames(age_tab) <- c("Gesamt", "W", "M")
+age_tab <- age_tab[2:nrow(age_tab), ]
+rownames(age_tab) <- c("0 bis 5", 
+                      "6 bis 10", 
+                      "11 bis 20", 
+                      "21 bis 40", 
+                      "41 bis 60", 
+                      "61 bis 80",
+                      "größer 80")
+## kable
+age_tab %>%
+    kable() %>%
+     kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+    footnote(general = "Referat für Gesundheit und Umwelt, Meldewesen",
+             general_title  = "Quelle: ",
+             title_format = c("italic", "underline"))
+```
+Das Durchschnittsalter über alle Meldefälle beträgt aktuell `r mean(as.numeric(as.character(octo_data$Alter_Erstmeldung)), na.rm = TRUE) %>% round(., digits = 2)` Jahre.
+
+
+## Insgesamt
+```{r Altersverteilung_bar_sum, echo=FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_sum_Inz', 
+  'age_6to10_sum_Inz',
+  'age_11to20_sum_Inz',
+  'age_21to40_sum_Inz',
+  'age_41to60_sum_Inz',
+  'age_61to80_sum_Inz',
+  'age_81plus_sum_Inz')
+
+## labels of categories
+category_labels <- c(
+  "0 bis 5", 
+  "6 bis 10", 
+  "11 bis 20",
+  "21 bis 40",
+  "41 bis 60",
+  "61 bis 80",
+  "größer 80")
+
+## prepare data for stacked barplot
+input_data %>%
+  
+  ## get incidences
+  mutate(age_0to5_sum_Inz = c(0, diff(age_0to5_sum)),
+         age_6to10_sum_Inz = c(0, diff(age_6to10_sum)),
+         age_11to20_sum_Inz = c(0, diff(age_11to20_sum)),
+         age_21to40_sum_Inz = c(0, diff(age_21to40_sum)),
+         age_41to60_sum_Inz = c(0, diff(age_41to60_sum)),
+         age_61to80_sum_Inz = c(0, diff(age_61to80_sum)),
+         age_81plus_sum_Inz = c(0, diff(age_81plus_sum))
+         ) %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases  
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+
+  filter(week >= 10) %>%
+  
+  ## plot data
+  ggplot(., aes(x = week, y = n, fill = variable)) + 
+    geom_bar(position="stack", stat="identity") +
+
+    ggtitle("Altersverteilung im Zeitverlauf (absolut)") +
+    theme_bw() +
+  labs(x = "Kalenderwoche", y = "Fallzahl") +
+  scale_fill_viridis(name="Altersgruppe",
+                      breaks= rev(focal_vars),
+                      labels = rev(category_labels),
+                     discrete = TRUE)
+```    
+
+
+```{r Altersverteilung_area_sum, echo=FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_sum_Inz', 
+  'age_6to10_sum_Inz',
+  'age_11to20_sum_Inz',
+  'age_21to40_sum_Inz',
+  'age_41to60_sum_Inz',
+  'age_61to80_sum_Inz',
+  'age_81plus_sum_Inz')
+
+## labels of categories
+category_labels <- c(
+  "0 bis 5", 
+  "6 bis 10", 
+  "11 bis 20",
+  "21 bis 40",
+  "41 bis 60",
+  "61 bis 80",
+  "größer 80")
+
+## prepare data for stacked barplot
+input_data %>%
+  
+  ## get incidences
+  mutate(age_0to5_sum_Inz = c(0, diff(age_0to5_sum)),
+         age_6to10_sum_Inz = c(0, diff(age_6to10_sum)),
+         age_11to20_sum_Inz = c(0, diff(age_11to20_sum)),
+         age_21to40_sum_Inz = c(0, diff(age_21to40_sum)),
+         age_41to60_sum_Inz = c(0, diff(age_41to60_sum)),
+         age_61to80_sum_Inz = c(0, diff(age_61to80_sum)),
+         age_81plus_sum_Inz = c(0, diff(age_81plus_sum))
+         ) %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases and convert to percentages  
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+  mutate(percentage = n / sum(n)) %>%
+  mutate(percentage = percentage*100) %>%
+
+  
+  filter(week >= 10) %>%
+  
+  #ä plot data
+  ggplot(., aes(x = week, y = percentage, fill = variable)) + 
+    geom_area(alpha = 1 , size = 0.5, colour="white") +
+
+    theme_bw() + 
+    ggtitle("Altersverteilung im Zeitverlauf (prozentual)") +
+  labs(x = "Kalenderwoche", y = "Prozent") +
+  scale_fill_viridis(name="Altersgruppe",
+                      breaks = rev(focal_vars),
+                      labels = rev(category_labels),
+                     discrete = TRUE)
+  
+    
+```    
+
+## Weiblich
+```{r Altersverteilung_bar_w, echo=FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_w_Inz', 
+  'age_6to10_w_Inz',
+  'age_11to20_w_Inz',
+  'age_21to40_w_Inz',
+  'age_41to60_w_Inz',
+  'age_61to80_w_Inz',
+  'age_81plus_w_Inz')
+
+## labels of categories
+category_labels <- c(
+  "0 bis 5", 
+  "6 bis 10", 
+  "11 bis 20",
+  "21 bis 40",
+  "41 bis 60",
+  "61 bis 80",
+  "größer 80")
+
+## prepare data for stacked barplot
+input_data %>%
+  
+  ## get incidences
+  mutate(age_0to5_w_Inz = c(0, diff(age_0to5_w)),
+         age_6to10_w_Inz = c(0, diff(age_6to10_w)),
+         age_11to20_w_Inz = c(0, diff(age_11to20_w)),
+         age_21to40_w_Inz = c(0, diff(age_21to40_w)),
+         age_41to60_w_Inz = c(0, diff(age_41to60_w)),
+         age_61to80_w_Inz = c(0, diff(age_61to80_w)),
+         age_81plus_w_Inz = c(0, diff(age_81plus_w))
+         ) %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases  
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+
+
+  filter(week >= 10) %>%
+  
+  ## plot data
+  ggplot(., aes(x = week, y = n, fill = variable)) + 
+    geom_bar(position="stack", stat="identity") +
+
+    ggtitle("Altersverteilung im Zeitverlauf (absolut)") +
+    theme_bw() +
+  labs(x = "Kalenderwoche", y = "Fallzahl") +
+  scale_fill_viridis(name="Altersgruppe",
+                      breaks = rev(focal_vars),
+                      labels = rev(category_labels),
+                     discrete = TRUE)
+```    
+
+```{r Altersverteilung_area_w, echo=FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_w_Inz', 
+  'age_6to10_w_Inz',
+  'age_11to20_w_Inz',
+  'age_21to40_w_Inz',
+  'age_41to60_w_Inz',
+  'age_61to80_w_Inz',
+  'age_81plus_w_Inz')
+
+## labels of categories
+category_labels <- c(
+  "0 bis 5", 
+  "6 bis 10", 
+  "11 bis 20",
+  "21 bis 40",
+  "41 bis 60",
+  "61 bis 80",
+  "größer 80")
+
+## prepare data for stacked barplot
+input_data %>%
+  
+  ## get incidences
+  mutate(age_0to5_w_Inz = c(0, diff(age_0to5_w)),
+         age_6to10_w_Inz = c(0, diff(age_6to10_w)),
+         age_11to20_w_Inz = c(0, diff(age_11to20_w)),
+         age_21to40_w_Inz = c(0, diff(age_21to40_w)),
+         age_41to60_w_Inz = c(0, diff(age_41to60_w)),
+         age_61to80_w_Inz = c(0, diff(age_61to80_w)),
+         age_81plus_w_Inz = c(0, diff(age_81plus_w))
+         ) %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases and convert to percentages  
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+  mutate(percentage = n / sum(n)) %>%
+  mutate(percentage = percentage*100) %>%
+
+  
+  filter(week >= 10) %>%
+  
+  #ä plot data
+  ggplot(., aes(x = week, y = percentage, fill = variable)) + 
+    geom_area(alpha = 1 , size = 0.5, colour="white") +
+
+    theme_bw() + 
+    ggtitle("Altersverteilung im Zeitverlauf (prozentual)") +
+  labs(x = "Kalenderwoche", y = "Prozent") +
+  scale_fill_viridis(name="Altersgruppe",
+                      breaks = rev(focal_vars),
+                      labels = rev(category_labels),
+                     discrete = TRUE)
+
+``` 
+
+## Männlich
+```{r Altersverteilung_bar_m, echo=FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_m_Inz', 
+  'age_6to10_m_Inz',
+  'age_11to20_m_Inz',
+  'age_21to40_m_Inz',
+  'age_41to60_m_Inz',
+  'age_61to80_m_Inz',
+  'age_81plus_m_Inz')
+
+## labels of categories
+category_labels <- c(
+  "0 bis 5", 
+  "6 bis 10", 
+  "11 bis 20",
+  "21 bis 40",
+  "41 bis 60",
+  "61 bis 80",
+  "größer 80")
+
+## prepare data for stacked barplot
+input_data %>%
+  
+  ## get incidences
+  mutate(age_0to5_m_Inz = c(0, diff(age_0to5_m)),
+         age_6to10_m_Inz = c(0, diff(age_6to10_m)),
+         age_11to20_m_Inz = c(0, diff(age_11to20_m)),
+         age_21to40_m_Inz = c(0, diff(age_21to40_m)),
+         age_41to60_m_Inz = c(0, diff(age_41to60_m)),
+         age_61to80_m_Inz = c(0, diff(age_61to80_m)),
+         age_81plus_m_Inz = c(0, diff(age_81plus_m))
+         ) %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases  
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+
+
+  filter(week >= 10) %>%
+  
+  ## plot data
+  ggplot(., aes(x = week, y = n, fill = variable)) + 
+    geom_bar(position="stack", stat="identity") +
+
+    ggtitle("Altersverteilung im Zeitverlauf (absolut)") +
+    theme_bw() +
+  labs(x = "Kalenderwoche", y = "Fallzahl") +
+  scale_fill_viridis(name="Altersgruppe",
+                      breaks = rev(focal_vars),
+                      labels = rev(category_labels),
+                     discrete = TRUE)
+```    
+
+
+```{r Altersverteilung_area_m, echo=FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_m_Inz', 
+  'age_6to10_m_Inz',
+  'age_11to20_m_Inz',
+  'age_21to40_m_Inz',
+  'age_41to60_m_Inz',
+  'age_61to80_m_Inz',
+  'age_81plus_m_Inz')
+
+## labels of categories
+category_labels <- c(
+  "0 bis 5", 
+  "6 bis 10", 
+  "11 bis 20",
+  "21 bis 40",
+  "41 bis 60",
+  "61 bis 80",
+  "größer 80")
+
+## prepare data for stacked barplot
+input_data %>%
+  
+  ## get incidences
+  mutate(age_0to5_m_Inz = c(0, diff(age_0to5_m)),
+         age_6to10_m_Inz = c(0, diff(age_6to10_m)),
+         age_11to20_m_Inz = c(0, diff(age_11to20_m)),
+         age_21to40_m_Inz = c(0, diff(age_21to40_m)),
+         age_41to60_m_Inz = c(0, diff(age_41to60_m)),
+         age_61to80_m_Inz = c(0, diff(age_61to80_m)),
+         age_81plus_m_Inz = c(0, diff(age_81plus_m))
+         ) %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases and convert to percentages  
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+  mutate(percentage = n / sum(n)) %>%
+  mutate(percentage = percentage*100) %>%
+  
+  filter(week >= 10) %>%
+  
+  #ä plot data
+  ggplot(., aes(x = week, y = percentage, fill = variable)) + 
+    geom_area(alpha = 1 , size = 0.5, colour="white") +
+
+    theme_bw() + 
+    ggtitle("Altersverteilung im Zeitverlauf (prozentual)") +
+  labs(x = "Kalenderwoche", y = "Prozent") +
+  scale_fill_viridis(name="Altersgruppe",
+                      breaks = rev(focal_vars),
+                      labels = rev(category_labels),
+                     discrete = TRUE)
+    
+```
+
+
+## Durchschnittsalter
+```{r Average_Age, echo=FALSE, warning=FALSE}
+
+## prepare data for stacked barplot
+meanAge_plotly_data <- octo_data %>%
+  mutate(Datum  =
+           as.Date(Erstmeldung, format = "%d.%m.%Y")) %>%
+  ## total
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week) %>%
+  summarise(meanAge = mean(as.numeric(Alter_Erstmeldung), na.rm = TRUE) %>%
+              round(., digits = 2),
+             .groups = 'drop_last') %>%
+  filter(week >= 10) %>%
+
+  full_join(
+
+    octo_data %>%
+  mutate(Datum  =
+           as.Date(Erstmeldung, format = "%d.%m.%Y")) %>%
+  ## female
+  filter(Person_Geschlecht == "weiblich") %>%
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week) %>%
+  summarise(meanAge_w = mean(as.numeric(Alter_Erstmeldung), na.rm = TRUE) %>%
+              round(., digits = 2),
+            .groups = 'drop_last') %>%
+  filter(week >= 10)
+
+    ,
+
+    by = c('week')
+  ) %>%
+
+  full_join(
+
+    octo_data %>%
+  mutate(Datum  =
+           as.Date(Erstmeldung, format = "%d.%m.%Y")) %>%
+  ## male
+  filter(Person_Geschlecht == "männlich") %>%
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week) %>%
+  summarise(meanAge_m = mean(as.numeric(Alter_Erstmeldung), na.rm = TRUE) %>%
+              round(., digits = 2),
+            .groups = 'drop_last') %>%
+  filter(week >= 10)
+
+
+    ,
+
+    by = c('week')
+  )
+
+## Average age
+fig_meanAge <- plot_ly(meanAge_plotly_data,
+                        x = ~week, type = 'scatter',
+                        y = ~meanAge , name = 'insgesamt',
+                       mode = 'lines+markers') %>%
+
+    add_trace(y = ~meanAge_m , name = 'männlich', mode = 'lines+markers')  %>%
+  add_trace(y = ~meanAge_w , name = 'weiblich', mode = 'lines+markers') %>%
+
+  layout(title = "Durchschnittsalter",
+         xaxis = list(title = "Kalenderwoche"),
+         yaxis = list (title = "Arithmetisches Mittel (Jahre)"))
+
+fig_meanAge
+
+```
+
+******
+
+# Verstorbene
+
+Die Verstorbenen sind eine Teilmenge der Meldefälle.
+
+## Altersverteilung
+
+```{r fatalities_Altersverteilung, echo=FALSE}
+
+## select data
+age_tab_dead <- cbind(
+  
+  octo_complete_dead %>%
+    filter(Datum == max(Datum)) %>%
+    dplyr::select(
+      Datum,
+      age_0to5_sum, 
+      age_6to10_sum,
+      age_11to20_sum,
+      age_21to40_sum,
+      age_41to60_sum,
+      age_61to80_sum,
+      age_81plus_sum
+    ) %>% t(),
+  
+  octo_complete_dead %>%
+    filter(Datum == max(Datum)) %>%
+    dplyr::select(
+      Datum,
+      age_0to5_w, 
+      age_6to10_w,
+      age_11to20_w,
+      age_21to40_w,
+      age_41to60_w,
+      age_61to80_w,
+      age_81plus_w
+    ) %>% t(),
+
+  octo_complete_dead %>%
+    filter(Datum == max(Datum)) %>%
+    dplyr::select(
+      Datum,
+      age_0to5_m, 
+      age_6to10_m,
+      age_11to20_m,
+      age_21to40_m,
+      age_41to60_m,
+      age_61to80_m,
+      age_81plus_m
+    ) %>% t()
+) %>% 
+  as.data.frame() 
+
+## set colnames and rownames
+colnames(age_tab_dead) <- c("Gesamt", "W", "M")
+age_tab_dead <- age_tab_dead[2:nrow(age_tab_dead), ]
+rownames(age_tab_dead) <- c("0 bis 5", 
+                      "6 bis 10", 
+                      "11 bis 20", 
+                      "21 bis 40", 
+                      "41 bis 60", 
+                      "61 bis 80",
+                      "größer 80")
+## kable
+age_tab_dead %>%
+    kable() %>%
+     kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+    footnote(general = "Referat für Gesundheit und Umwelt, Meldewesen",
+             general_title  = "Quelle: ",
+             title_format = c("italic", "underline"))
+    
+```
+Das Durchschnittsalter über alle Verstorbenen beträgt aktuell `r as.character(round(Fatalities_meanAge, digits = 2))` Jahre.
+
+## Insgesamt
+
+```{r fatalities_bars, echo=FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_sum_Inz', 
+  'age_6to10_sum_Inz',
+  'age_11to20_sum_Inz',
+  'age_21to40_sum_Inz',
+  'age_41to60_sum_Inz',
+  'age_61to80_sum_Inz',
+  'age_81plus_sum_Inz')
+
+## labels of categories
+category_labels <- c(
+  "0 bis 5", 
+  "6 bis 10", 
+  "11 bis 20",
+  "21 bis 40",
+  "41 bis 60",
+  "61 bis 80",
+  "größer 80")
+
+## prepare data for stacked barplot
+octo_complete_dead %>%
+  
+  ## get incidences
+  mutate(age_0to5_sum_Inz = c(0, diff(age_0to5_sum)),
+         age_6to10_sum_Inz = c(0, diff(age_6to10_sum)),
+         age_11to20_sum_Inz = c(0, diff(age_11to20_sum)),
+         age_21to40_sum_Inz = c(0, diff(age_21to40_sum)),
+         age_41to60_sum_Inz = c(0, diff(age_41to60_sum)),
+         age_61to80_sum_Inz = c(0, diff(age_61to80_sum)),
+         age_81plus_sum_Inz = c(0, diff(age_81plus_sum))
+         ) %>%
+
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases  
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+
+  filter(week >= 10) %>%
+  
+  ## plot data
+  ggplot(., aes(x = week, y = n, fill = variable)) + 
+    geom_bar(position="stack", stat="identity") +
+
+    ggtitle("Altersverteilung im Zeitverlauf (absolut)") +
+    theme_bw() +
+  labs(x = "Kalenderwoche (Sterbedatum)", y = "Fallzahl") +
+  scale_fill_viridis(name="Altersgruppe",
+                      breaks= rev(focal_vars),
+                      labels = rev(category_labels),
+                     discrete = TRUE)
+
+
+```
+
+******
+
+# Hospitalisierte
+
+Datengrundlage sind die Meldungen der Kliniken an das RGU. Die Auswertungen beziehen sich auf alle bis einschließlich *Juli* übermittelten in München hospitalisierten Personen.
+
+```{r kh_Altersverteilung, echo=FALSE}
+
+## select data
+age_tab_kh <- cbind(
+  
+  kh_data_complete %>%
+    filter(Datum == max(Datum)) %>%
+    dplyr::select(
+      Datum,
+      age_0to5_sum, 
+      age_6to10_sum,
+      age_11to20_sum,
+      age_21to40_sum,
+      age_41to60_sum,
+      age_61to80_sum,
+      age_81plus_sum
+    ) %>% t(),
+  
+  kh_data_complete %>%
+    filter(Datum == max(Datum)) %>%
+    dplyr::select(
+      Datum,
+      age_0to5_w, 
+      age_6to10_w,
+      age_11to20_w,
+      age_21to40_w,
+      age_41to60_w,
+      age_61to80_w,
+      age_81plus_w
+    ) %>% t(),
+
+  kh_data_complete %>%
+    filter(Datum == max(Datum)) %>%
+    dplyr::select(
+      Datum,
+      age_0to5_m, 
+      age_6to10_m,
+      age_11to20_m,
+      age_21to40_m,
+      age_41to60_m,
+      age_61to80_m,
+      age_81plus_m
+    ) %>% t()
+) %>% 
+  as.data.frame() 
+
+## set colnames and rownames
+colnames(age_tab_kh) <- c("Gesamt", "W", "M")
+age_tab_kh <- age_tab_kh[2:nrow(age_tab_kh), ]
+rownames(age_tab_kh) <- c("0 bis 5", 
+                      "6 bis 10", 
+                      "11 bis 20", 
+                      "21 bis 40", 
+                      "41 bis 60", 
+                      "61 bis 80",
+                      "größer 80")
+## kable
+age_tab_kh %>%
+    kable() %>%
+     kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+    footnote(general = "Referat für Gesundheit und Umwelt, Meldewesen",
+             general_title  = "Quelle: ",
+             title_format = c("italic", "underline"))
+    
+```
+Das Durchschnittsalter über alle Hospitalisierten beträgt aktuell `r as.character(round(KH_meanAge, digits = 2))` Jahre.
+
+******
+
+Nachfolgende Grafiken beziehen sich aus Gründen des Datenschutzes auf Hospitalisierte mit einem Aufnahmedatum ab Kalenderwoche 10.
+
+## Insgesamt
+
+```{r kh_bars, echo=FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_sum_Inz', 
+  'age_6to10_sum_Inz',
+  'age_11to20_sum_Inz',
+  'age_21to40_sum_Inz',
+  'age_41to60_sum_Inz',
+  'age_61to80_sum_Inz',
+  'age_81plus_sum_Inz')
+
+## labels of categories
+category_labels <- c(
+  "0 bis 5", 
+  "6 bis 10", 
+  "11 bis 20",
+  "21 bis 40",
+  "41 bis 60",
+  "61 bis 80",
+  "größer 80")
+
+## prepare data for stacked barplot
+kh_data_complete %>%
+  
+    ## from 2020 on
+  filter(Datum >= as.Date('2020-01-01', origin = '1970-01-01')) %>%
+  
+  ## get incidences
+  mutate(age_0to5_sum_Inz = c(0, diff(age_0to5_sum)),
+         age_6to10_sum_Inz = c(0, diff(age_6to10_sum)),
+         age_11to20_sum_Inz = c(0, diff(age_11to20_sum)),
+         age_21to40_sum_Inz = c(0, diff(age_21to40_sum)),
+         age_41to60_sum_Inz = c(0, diff(age_41to60_sum)),
+         age_61to80_sum_Inz = c(0, diff(age_61to80_sum)),
+         age_81plus_sum_Inz = c(0, diff(age_81plus_sum))
+         ) %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases  
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+
+  filter(week >= 10) %>%
+  
+  ## plot data
+  ggplot(., aes(x = week, y = n, fill = variable)) + 
+    geom_bar(position="stack", stat="identity") +
+
+    ggtitle("Altersverteilung im Zeitverlauf (absolut)") +
+    theme_bw() +
+  labs(x = "Aufnahmedatum Kalenderwoche", y = "Fallzahl") +
+  scale_fill_viridis(name="Altersgruppe",
+                      breaks= rev(focal_vars),
+                      labels = rev(category_labels),
+                     discrete = TRUE)
+
+```
+
+```{r Altersverteilung_KH_area_sum, echo=FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_sum_Inz', 
+  'age_6to10_sum_Inz',
+  'age_11to20_sum_Inz',
+  'age_21to40_sum_Inz',
+  'age_41to60_sum_Inz',
+  'age_61to80_sum_Inz',
+  'age_81plus_sum_Inz')
+
+## labels of categories
+category_labels <- c(
+  "0 bis 5", 
+  "6 bis 10", 
+  "11 bis 20",
+  "21 bis 40",
+  "41 bis 60",
+  "61 bis 80",
+  "größer 80")
+
+## prepare data for stacked barplot
+kh_data_complete %>%
+  
+    ## from 2020 on
+  filter(Datum >= as.Date('2020-01-01', origin = '1970-01-01')) %>%
+  
+  ## get incidences
+  mutate(age_0to5_sum_Inz = c(0, diff(age_0to5_sum)),
+         age_6to10_sum_Inz = c(0, diff(age_6to10_sum)),
+         age_11to20_sum_Inz = c(0, diff(age_11to20_sum)),
+         age_21to40_sum_Inz = c(0, diff(age_21to40_sum)),
+         age_41to60_sum_Inz = c(0, diff(age_41to60_sum)),
+         age_61to80_sum_Inz = c(0, diff(age_61to80_sum)),
+         age_81plus_sum_Inz = c(0, diff(age_81plus_sum))
+         ) %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases and convert to percentages  
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+  mutate(percentage = n / sum(n)) %>%
+  mutate(percentage = percentage*100) %>%
+  
+  filter(week >= 10) %>%
+
+  
+  # plot data
+  ggplot(., aes(x = week, y = percentage, fill = variable)) + 
+    geom_area(alpha = 1 , size = 0.5, colour="white") +
+
+    theme_bw() + 
+    ggtitle("Altersverteilung im Zeitverlauf (prozentual)") +
+  labs(x = "Aufnahmedatum Kalenderwoche", y = "Prozent") +
+  scale_fill_viridis(name="Altersgruppe",
+                      breaks = rev(focal_vars),
+                      labels = rev(category_labels),
+                     discrete = TRUE)
+  
+    
+```
+
+## Durchschnittsalter
+
+```{r kh_Average_Age, echo=FALSE, warning=FALSE}
+
+## prepare data for stacked barplot
+meanAge_plotly_data_kh <- kh_data %>%
+  
+  mutate(Datum  =
+           as.Date(AUFNAHMEDATUM, format = "%d.%m.%Y")) %>%
+  
+   ## from 2020 on
+  filter(Datum >= as.Date('2020-01-01', origin = '1970-01-01')) %>%
+  
+  ## total
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week) %>%
+  summarise(meanAge = mean(as.numeric(ALTERINJAHRENAMAUFNAHMETAG), na.rm = TRUE) %>%
+              round(., digits = 2),
+             .groups = 'drop_last') %>%
+
+  full_join(
+
+    kh_data %>%
+      
+  mutate(Datum  =
+           as.Date(AUFNAHMEDATUM, format = "%d.%m.%Y")) %>%
+    
+       ## from 2020 on
+  filter(Datum >= as.Date('2020-01-01', origin = '1970-01-01')) %>%
+    
+  ## female
+  filter(GESCHLECHT == "W") %>%
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week) %>%
+  summarise(meanAge_w = mean(as.numeric(ALTERINJAHRENAMAUFNAHMETAG), na.rm = TRUE) %>%
+              round(., digits = 2),
+            .groups = 'drop_last')
+    ,
+
+    by = c('week')
+  ) %>%
+
+  full_join(
+
+    kh_data %>%
+  
+  mutate(Datum  =
+           as.Date(AUFNAHMEDATUM, format = "%d.%m.%Y")) %>%
+    
+       ## from 2020 on
+  filter(Datum >= as.Date('2020-01-01', origin = '1970-01-01')) %>%
+    
+  ## male
+  filter(GESCHLECHT == "M") %>%
+  mutate(week = lubridate::isoweek(Datum)) %>%
+  group_by(week) %>%
+  summarise(meanAge_m = mean(as.numeric(ALTERINJAHRENAMAUFNAHMETAG), na.rm = TRUE) %>%
+              round(., digits = 2),
+            .groups = 'drop_last')
+    ,
+
+    by = c('week')
+  ) %>%
+  
+  filter(week >= 10)
+
+## Average age
+fig_meanAge_kh <- plot_ly(meanAge_plotly_data_kh,
+                        x = ~week, type = 'scatter',
+                        y = ~meanAge , name = 'insgesamt',
+                       mode = 'lines+markers') %>%
+
+    add_trace(y = ~meanAge_m , name = 'männlich', mode = 'lines+markers')  %>%
+  add_trace(y = ~meanAge_w , name = 'weiblich', mode = 'lines+markers') %>%
+
+  layout(title = "Durchschnittsalter",
+         xaxis = list(title = "Aufnahmedatum Kalenderwoche"),
+         yaxis = list (title = "Arithmetisches Mittel (Jahre)"))
+
+fig_meanAge_kh
+
+```

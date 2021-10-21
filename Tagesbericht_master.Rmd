@@ -1,0 +1,1519 @@
+---
+title: "&nbsp;"
+output:
+    html_document:
+      theme: united
+      highlight: tango
+      df_print: paged
+    html_document_toc:
+      theme: united
+      highlight: tango
+      df_print: paged
+      toc_float: true
+      toc: true
+      toc_depth: 2
+      code_folding: hide
+params:
+    evalThirdParty: FALSE
+    evalTagesberichtHeader: TRUE
+    evalAktuelleKennzahlenHeader: FALSE
+    evalRisikobewertung: TRUE
+    evalFallzahlen: TRUE
+    evalAltersverteilungGesamt: TRUE
+    eval7TageInzidenz: TRUE
+    eval7TageInzidenz_Impfstatus: TRUE
+    eval7TageInzidenz_Hospitalisierung: TRUE
+    eval7TageInzidenz_ICU: TRUE
+    evalAltersverteilungNeuinfektionen: TRUE
+    evalAltersverteilungVerstorbene: TRUE
+    evalEinrichtungen: TRUE
+    evalKontaktpersonen: TRUE
+    evalWichtigeKennzahlenfuerBayern: TRUE
+    evalVerdopplungszahl: TRUE
+    evalReproduktionsrate: TRUE
+    evalDurchgefuehrteTests: TRUE
+    evalPatientenumfeld: TRUE
+    evalKontaktumfeld: TRUE
+    evalExpositionsland: TRUE
+    evalSelbsttestsSchulen: TRUE
+    evalImpfungenAicher: FALSE
+    evalImpfquote: TRUE
+    evalImpfungenKliniken: TRUE
+    evalAbbildung1: TRUE
+    evalAbbildung2: TRUE
+    evalAbbildung3: FALSE
+    evalTestungenNeu: TRUE
+    evalBettenmeldung: TRUE
+    evalPreload: FALSE
+    echoCode: FALSE
+
+---
+
+
+```{r setup, echo=params$echoCode, warning=FALSE, message=FALSE, include=TRUE}
+
+third_party <- params$evalThirdParty
+
+## path variables
+if (third_party == FALSE) {
+  
+  ## main path
+  path_tagesberichte <- "L:/Thematische-Ordner/Corona/R_Projekte/Tagesbericht/"
+  path_tagesberichte_branddir <- "M:/BFM/Austausch-RGU-BD/Reports_RGU/"
+  
+  source(paste0(path_tagesberichte, "scripts/22_path_variables.R"),
+         encoding = 'utf-8')
+  
+} else {
+  
+  ## main path
+  # path_tagesberichte <- "L:/Thematische-Ordner/Corona/R_Projekte/Tagesbericht/"
+  # path_tagesberichte_branddir <- "M:/BFM/Austausch-RGU-BD/Reports_RGU/"
+  
+  path_tagesberichte <- "../"
+  
+  path_tagesberichte_branddir <- "../branddir/"
+  
+  if(!dir.exists(path_tagesberichte_branddir)){
+    
+    dir.create(path_tagesberichte_branddir)
+    
+  }
+  
+  source(paste0(path_tagesberichte, "22_path_variables_STATUP.R"),
+         
+         encoding = 'utf-8')
+  
+  synthesize_data <- FALSE
+  
+}
+
+## root directory and global options
+
+knitr::opts_knit$set(root.dir = wd_path)
+knitr::opts_chunk$set(echo=params$echoCode, warning=FALSE, message = FALSE)
+
+## libraries
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(tidyr)
+library(magrittr)
+library(htmltools)
+library(ggplot2)
+library(stringr)
+library(plotly)
+library(purrr)
+library(zoo)
+
+
+# load data --------------------------------------------------------------------
+
+Inz_RKI_LGL <- readxl::read_excel(paste0(wd_path2, "Inz_RKI_LGL.xlsx"), 1)
+
+## set dummy for exports to BFM
+export_to_bmf <- TRUE
+
+## source functions for age tables and incidences
+source(paste0(path_tagesberichte, "scripts/25_functions_age.R"),
+       encoding = 'utf-8')
+
+## source data preparation script; if a preload exists, we can load it for
+## debugging to avoid running the costly 11_ script again and again
+work_with_preload <- params$evalPreload
+
+if (work_with_preload == FALSE) {
+
+  source(file = paste0(wd_path5, "11_daily_reports_data.R"), encoding = 'utf-8')
+
+} else {
+
+  load(paste0(wd_path1, "11_preload.RData"))
+
+}
+
+source(file = paste0(wd_path5, "23_prepare_mutations.r"), encoding = 'utf-8')
+
+# LGL, RKI Inzidenzen ----------------------------------------------------------
+
+lgl_data <- readRDS(paste0(wd_path1, "lgl_data.rds"))
+lgl_data_hospitalizations <- readRDS(paste0(wd_path1, "lgl_data_hospitalizations.rds"))
+lgl_data_icu <- readRDS(paste0(wd_path1, "lgl_data_icu.rds"))
+
+## prepare data
+source(file = paste0(wd_path5, "17_prepare_inzidenz.R"), encoding = 'utf-8')
+
+# Hilfsfunktion für Altersverteilungen. 
+# Erwartet Datum und Spalten im Format von age_6to10_w. 
+# Kategorien der Form _dead_new werden automatisch abgeschnitten.
+getAgeTable <- function(data) {
+  # Nur aktuellstes Datum betrachten und Datumsspalte entfernen
+  data <- data %>% 
+    arrange(Datum) %>% 
+    tail(1) %>%
+    dplyr::select(-Datum)
+  # Spaltennamen aufsplitten und als Werte nutzen. Aus age_6to10_w_new wird z.B:
+  # removethis | Alter   | Geschlecht | n 
+  # age        | 6to10   | w          | <Anzahl der Fälle in dieser Gruppe>
+  data %>% pivot_longer(
+      cols = everything(), 
+      names_to=c("removethis","Alter","Geschlecht"), 
+      names_sep="_",
+      values_to="n"
+    ) %>%
+    # Spalte removethis entfernen
+    dplyr::select(-removethis) %>%
+    # Geschlechter zu Spalten machen mit n als Wert
+    spread(Geschlecht, n) %>%
+    arrange(
+      factor(
+        Alter,
+        c("0to5", "6to10", "11to20", "21to40", "41to60", "61to80", "81plus", "unknown")
+      )
+    ) %>%
+    # Anteile berechnen
+    # Wenn Summe 0 ist, dann nimm 1, um Divison durch 0 zu vermeiden
+    mutate(m_perc = m / max(sum(m), 1)) %>%
+    mutate(w_perc = w / max(sum(w), 1)) %>%
+    mutate(na_perc = `na` / max(sum(`na`), 1)) %>%
+    mutate(sum_perc = `sum` / max(sum(`sum`), 1)) %>%
+    # Prozentangaben formatieren: 
+    # %...f% bedeutet dass hier eine Kommazahl (f=Floating Point) eingesetzt wird, 
+    # %1.2f% meint mindestens eine Stelle vor dem Komma
+    # und maximal zwei Stellen nach dem Komma
+    mutate(across(ends_with("perc"), ~sprintf("%1.2f%%", .x * 100))) %>%
+    # Finalisieren für Layout im Tagesbericht
+    dplyr::select(sum, sum_perc, w, w_perc, m, m_perc, `na`, na_perc) %>%
+    magrittr::set_colnames(c("Gesamt", "Gesamt %" , "W", "W %", "M" , "M %", "NA", "NA %")) %>% 
+    magrittr::set_rownames(c(
+      "0 bis 5", 
+      "6 bis 10", 
+      "11 bis 20", 
+      "21 bis 40", 
+      "41 bis 60", 
+      "61 bis 80",
+      "größer 80", 
+      "ohne Angabe"
+    ))
+}
+```
+
+```{r RGU_logo, echo=params$echoCode, fig.cap="", out.width = '30%', fig.align="right"}
+include_graphics(paste0(wd_path3,"LHM_Logo.png"))
+```
+
+`r if(params$evalTagesberichtHeader) {"# Tagesbericht"}`
+`r if(params$evalAktuelleKennzahlenHeader) {"# Aktuelle Kennzahlen, 8:30 Uhr (nicht Tagesbericht)"}`
+
+```{r dateOfReport, echo=params$echoCode} 
+
+date_table <-  as.data.frame(c(format(Sys.Date(), "%d.%m.%Y"))) %>%
+  set_colnames("")
+kable(date_table)
+```
+
+`r if(params$evalRisikobewertung) {"# Risikobewertung für Deutschland"}`
+
+```{r RKI_riskEvaluation, echo=params$echoCode & params$evalRisikobewertung, eval=params$evalRisikobewertung}
+
+recent_data_3d %>%
+  mutate(`Risikobewertung Deutschland` = case_when(
+    Datum <= "2021-05-31" ~ "sehr hoch",
+    Datum > "2021-05-31" ~ "hoch")) %>%
+  mutate(Datum = format(Datum,"%d.%m.%Y")) %>%
+  dplyr::select(Datum, `Risikobewertung Deutschland`) %>%
+  kable() %>%
+  kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+  footnote(general = "Robert-Koch-Institut. Für vollständig Geimpfte wird die Gefährdung als moderat eingestuft.",
+           general_title  = "Quelle: ",
+           title_format = c("italic", "underline"))
+
+```
+
+`r if(params$evalFallzahlen){"******"}`
+`r if(params$evalFallzahlen){"# Fallzahlen"}`
+
+```{r Fälle, echo=params$echoCode & params$evalFallzahlen, eval=params$evalFallzahlen}
+recent_cases_tab <- 
+  
+  
+  ## Fallzahlen
+  input_data %>%
+  filter(row_number() >= (n() - 3)) %>%
+  as.data.frame() %>%
+  arrange(Datum) %>%
+  mutate(casesGermanyKum_inz_archive = c(0, diff(casesGermanyKum_archive)),
+         casesGermanyKum_dead_inz_archive = c(0, diff(casesGermanyKum_dead_archive)),
+         casesBavariaKum_inz_archive = c(0, diff(casesBavariaKum_archive)),
+         casesBavariaKum_dead_inz_archive = c(0, diff(casesBavariaKum_dead_archive)),
+         casesMunich_inz = c(0, diff(casesMunich)),
+         casesMunich_dead_share = round((casesMunich_dead/casesMunich)*100,
+                                        digits = 2),
+         ## preserve numeric type
+         casesMunich_dead_numeric = casesMunich_dead,
+         casesMunich_numeric = casesMunich) %>%
+  mutate(casesGermanyKum_archive = paste0(casesGermanyKum_archive, " (+", casesGermanyKum_inz_archive, ")"),
+         casesGermanyKum_dead_archive = paste0(casesGermanyKum_dead_archive, " (+", casesGermanyKum_dead_inz_archive, ")"),
+         casesBavariaKum_archive = paste0(casesBavariaKum_archive, " (+", casesBavariaKum_inz_archive, ")"),
+         casesBavariaKum_dead_archive = paste0(casesBavariaKum_dead_archive, " (+", casesBavariaKum_dead_inz_archive, ")"),
+         casesMunich = paste0(casesMunich, " (+", casesMunich_inz, ")"),
+         casesMunich_dead = paste0(casesMunich_dead, " (", casesMunich_dead_share, "%)")) %>%
+  
+  arrange(Datum) %>%
+  
+  filter(Datum >= min(recent_data_3d$Datum),
+         Datum <= max(recent_data_3d$Datum)) %>%
+    
+ ## Akut Infizierte
+  
+    full_join(
+      
+      rbind(
+        
+        ## as of the day before the day before yesterday
+        input_data %>%
+          arrange(Datum) %>%
+          filter(Datum < max(Datum)-2) %>%
+          filter(Datum > max(Datum)-15) %>%
+          mutate(activelyInfected = max(casesMunich)-min(casesMunich)) %>%
+          filter(Datum == max(Datum)) %>%
+          dplyr::select(Datum, activelyInfected),
+        
+        
+        ## as of the day before yesterday
+        input_data %>%
+          arrange(Datum) %>%
+          filter(Datum < max(Datum)-1) %>%
+          filter(Datum > max(Datum)-15) %>%
+          mutate(activelyInfected = max(casesMunich)-min(casesMunich)) %>%
+          filter(Datum == max(Datum)) %>%
+          dplyr::select(Datum, activelyInfected),
+        
+        
+        ## as of yesterday
+        input_data %>%
+          arrange(Datum) %>%
+          filter(Datum < max(Datum)) %>%
+          filter(Datum > max(Datum)-15) %>%
+          mutate(activelyInfected = max(casesMunich)-min(casesMunich)) %>%
+          filter(Datum == max(Datum)) %>%
+          dplyr::select(Datum, activelyInfected),
+        
+        ## as of today
+        input_data %>%
+          arrange(Datum) %>%
+          filter(Datum > max(Datum)-15) %>%
+          mutate(activelyInfected = max(casesMunich)-min(casesMunich)) %>%
+          filter(Datum == max(Datum)) %>%
+          dplyr::select(Datum, activelyInfected)
+        
+      ) %>%
+        
+        arrange(Datum) %>%
+        filter(Datum >= min(recent_data_3d$Datum),
+               Datum <= max(recent_data_3d$Datum))
+        ,
+      
+      by = c("Datum")
+    ) %>%
+  
+  ## Geheilte (Octoware)
+
+  mutate(`Anzahl Geheilte` = casesMunich_numeric - 
+           casesMunich_dead_numeric - activelyInfected) %>%
+   
+  ## select and label variables
+  
+    dplyr::select(Datum, casesGermanyKum_archive, casesGermanyKum_dead_archive,
+                  casesBavariaKum_archive, casesBavariaKum_dead_archive,
+                  casesMunich, casesMunich_dead, 
+                  activelyInfected,
+                  `Anzahl Geheilte`) %>%
+  
+    arrange(Datum) %>%
+    filter(Datum >= min(recent_data_3d$Datum),
+           Datum <= max(recent_data_3d$Datum)) %>%
+      mutate(Datum = format(Datum, "%d.%m.%Y")) %>%
+
+  t() %>%
+  set_colnames(.[1, ]) %>%
+  .[2:nrow(.), ] %>%
+  set_rownames(c("Fälle in Deutschland",
+                 "   - davon verstorben",
+                 "Fälle in Bayern",
+                 "   - davon verstorben",
+                 "Fälle in München",
+                 "   - davon verstorben",
+                 "   - akut infiziert",
+                 "   - genesen"))
+
+
+## Exposure foreign country
+infected_withExposure <- sum(ExpLand_recent_tab$`akut Infizierte`)
+
+sum_actively_infected <- input_data %>%
+          arrange(Datum) %>%
+          filter(Datum > max(Datum)-15) %>%
+          mutate(activelyInfected = max(casesMunich)-min(casesMunich)) %>%
+          filter(Datum == max(Datum)) %>%
+          dplyr::select(activelyInfected) %>%
+            as.numeric()
+
+percentage_exposed <- round(
+  (infected_withExposure / sum_actively_infected) * 100, 
+  digits = 2)
+
+## set numbers for different sources
+row.names(recent_cases_tab)[c(1:4)] <- paste0(
+  row.names(recent_cases_tab)[c(1:4)], footnote_marker_number(1))
+
+row.names(recent_cases_tab)[5:8] <- paste0(
+  row.names(recent_cases_tab)[5:8], footnote_marker_number(2))
+
+
+## print table
+recent_cases_tab %>%  
+  kable(escape = F) %>%
+     kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+    footnote(number = 
+               c("Robert-Koch-Institut",
+                 "Gesundheitsreferat, Meldewesen"),
+             number_title  = "Quelle: ",
+             title_format = c("italic", "underline")) %>%
+    footnote(general = paste0("Von den seit ", format.Date(cut_date_mut, '%d.%m.%Y'), " gemeldeten ", inf_recent, " Fällen liegt bei ", b117_recent + b1351_recent + p1_recent + b1617_recent, " Fällen (", round(100 * (b117_recent + b1351_recent + p1_recent + b1617_recent) / inf_recent, 1), " %) ein Verdacht auf eine besorgniserregende Virusvariante (Variant of concern, VOC) bzw. eine Variante von Interesse (Variant of interest, VOI) vor. Davon wurden ", b117_recent, " Fälle als Variante B.1.1.7 (Alpha, VOC) bestätigt, ", b1351_recent, " Fälle als Variante B.1.351 (Beta, VOC), ", p1_recent, " Fälle als Variante P.1 (Gamma, VOC) und ", b1617_recent, " Fälle als Variante B.1.617, davon ", b1617_1_recent, " Fälle als Variante B.1.617.1 (Kappa, VOI) und ", b1617_2_recent, " Fälle als Variante B.1.617.2 (Delta, VOC). \n Insgesamt liegen bislang " , b117_recent + b1351_recent + p1_recent + b1617_recent + b117_old + b1351_old + p1_old + b1617_old, " VOC/VOI-Fälle vor und wurden ", b117_recent + b117_old, " Fälle als Variante B.1.1.7 (Alpha, VOC), ", b1351_recent + b1351_old, " Fälle als Variante B.1.351 (Beta, VOC), ", p1_recent + p1_old, " Fälle als Variante P.1 (Gamma, VOC) sowie ", b1617_recent + b1617_old, " Fälle als Variante B.1.617 laborbestätigt. Unter den als Variante B.1.617 bestätigten Fällen befinden sich insgesamt ",  b1617_1_recent + b1617_1_old, " Fälle der Variante B.1.617.1 (Kappa, VOI) und  ",  b1617_2_recent + b1617_2_old, " Fälle der Variante B.1.617.2 (Delta, VOC). Die differenzierte Zuordnung zu den Varianten Kappa und Delta ist nachträglich nicht für alle Fälle der Variante B.1.617 möglich."),
+                        general_title  = "Mutanten: ",
+             title_format = c("italic", "underline")) %>%
+  footnote(general = paste0("Die Anzahl der akut Infizierten ist definiert als die Summe der neu gemeldeten Infizierten der letzten 14 Tage. Der Anteil der gesichert im Ausland infizierten Personen an den akut Infizierten beträgt ", percentage_exposed,"%. Die Anzahl der Genesenen ist approximiert über die Differenz der kumulierten Fälle zu den akut Infizierten und Verstorbenen (seit 18.08.2020). Die hier angegebene Anzahl der Verstorbenen meint Fälle, die den Status 'verstorben' aufweisen (trifft zu auf ", fatalities_a1, " Fälle) und ein eingetragenes Sterbedatum haben (trifft zu auf ", fatalities_a2, " Fälle). Beide Merkmale sind nicht immer zeitgleich erfüllt (z.B. aufgrund noch aktiver Bearbeitung der Fälle). Insgesamt sind ", fatalities_a3, " Sterbefälle bekannt. Fehlende Werte (z.B. Wochenende) werden mit 'NA' (not available) ausgewiesen. Etwaige Inkonsistenzen / Unplausibilitäten zwischen den Fallzahlen aus München und jenen aus Bayern bzw. Deutschland beruhen auf mutmaßlichen Synchronisierungsproblemen seitens des RKI."),
+                        general_title  = "Note: ",
+             title_format = c("italic", "underline"))
+```
+
+`r if(params$evalKontaktpersonen){"******"}`
+`r if(params$evalKontaktpersonen){"# Kontaktpersonen"}`
+
+```{r KP1, echo=params$echoCode & params$evalKontaktpersonen, eval=params$evalKontaktpersonen}
+
+
+ctt_footnote <- paste0(
+  "Die Anzahl der Neuinfizierten (IP) ist auch in der ",
+  "Tabelle 'Fallzahlen' in der Zeile 'Fälle in München' ausgewiesen. Die ",
+  "Verteilung der Kontakte der IPs ist i.d.R. nicht symmetrisch. Die Quantilsangaben ",
+  "veranschaulichen daher, wie viele Prozent der IP weniger als die in den ",
+  "zugehörigen Zellen angegebene gerundete Anzahl an Kontakten hatten. ",
+  "Das 50% Quantil ist bspw. der Median. Die Zeilen 'Min -' und 'Max Kontakte' ", 
+  "stellen dar, wie viele Kontakte die IP mit der geringsten (Min) bzw. größten ",
+  "(Max) Anzahl an Kontakten berichtete."
+)
+
+ctt_disclaimer_footnote <- paste0(
+  "Gesundheitsreferat, Contact-Tracing-Teams; ",
+  "Die Kontaktpersonenstatistik bezieht sich auf in der Anwendung Octoware ",
+  "enthaltene Fälle, die dort nach dem 30.04.21 erzeugt wurden und deren ",
+  "Absonderungsende zu diesem Zeitpunkt nicht in der Vergangenheit lag. ")
+
+ctt_cases_total %>%
+  arrange(Datum) %>%
+  slice_max(Datum, n = 7, with_ties = FALSE) %>%
+  arrange(Datum) %>%
+      mutate(
+        KP1_quarant_total = sprintf('%d (%+d)', KP1_quarant_total, KP1_quarant_inz)
+      ) %>%
+    dplyr::select(Datum, 
+                  KP1_quarant_total, 
+                  starts_with('IP_'),
+                  -ends_with('_inz'),
+                  -IP_max_kontakte,
+                  IP_max_kontakte) %>%
+  mutate(Datum = format(Datum, "%d.%m.%Y")) %>%
+  t() %>%
+  magrittr::set_colnames(.[1, ]) %>%
+  .[2:nrow(.), ] %>%
+  magrittr::set_rownames(c("in Absonderung",
+                 "Anzahl Neuinfizierte",
+                 "Summe der Kontakte",
+                 "Min Kontakte",
+                 "50% Quantil",
+                 "75% Quantil",
+                 "90% Quantil",
+                 "95% Quantil",
+                 "Max Kontakte")) %>%
+  kable() %>%
+  kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+  pack_rows("Enge Kontaktpersonen", 1, 1) %>%
+  pack_rows("Kontakte der Neuinfizierten", 2, 9) %>%
+  footnote(
+    general = ctt_disclaimer_footnote,
+    general_title = "Quelle: ",
+    title_format = c("italic", "underline")
+  ) %>%
+  footnote(
+    general = ctt_footnote,
+    general_title = "Note: ",
+    title_format = c("italic", "underline")
+  )
+
+
+```
+
+`r if(params$evalWichtigeKennzahlenfuerBayern){"******"}`
+`r if(params$evalWichtigeKennzahlenfuerBayern){"# Wichtige Kennzahlen für Bayern"}`
+
+```{r Kennzahlen, echo=params$echoCode & params$evalWichtigeKennzahlenfuerBayern, eval=params$evalWichtigeKennzahlenfuerBayern}
+
+lgl_branddir_tab  %>%
+  tail(7) %>%
+  ## throw in blank column in preparation of the table layout
+  dplyr::select(c("Datum",
+                  "Hospitalisierte Fälle der letzten 7 Tage",
+                  "7-Tage-Hospitalisierungs-Inzidenz pro 100.000 Einwohner",
+                  "ICU_Belegung")) %>%  
+  t() %>%
+  magrittr::set_colnames(.[1, ]) %>%
+  .[2:nrow(.), ] %>%
+  magrittr::set_rownames(c(
+    "Hospitalisierte Fälle der letzten 7 Tage", 
+    "7-Tages-Hospitalisierungs-Inzidenz (pro 100.000 Einwohner)", 
+    "Belegung der Intensiv-Versorgungskapazitäten durch bestätigte COVID-19-Fälle"
+  )) %>%
+  kable() %>%
+  kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+  footnote(general = "LGL, DIVI",
+           general_title  = "Quelle: ",
+           title_format = c("italic", "underline")) %>%     
+  footnote(general = "Die Kennzahlen werden immer für den Vortag angegeben.",
+           general_title  = "Note:",
+           title_format = c("italic", "underline"))
+
+```
+
+`r if(params$eval7TageInzidenz){"******"}`
+`r if(params$eval7TageInzidenz){"# 7-Tage-Inzidenz"}`
+
+```{r Neuinfektionen, echo=params$echoCode & params$eval7TageInzidenz, eval=params$eval7TageInzidenz}
+    
+all_data_7days_inz %>%
+  ## throw in blank column in preparation of the table layout
+  mutate(BlankColumn = "") %>%
+  dplyr::select(Datum, casesMunich_Inz, BlankColumn, 
+                Inz7days_RGU, Inz7days_LGL, Inz7days_RKI,
+                ) %>%  
+  mutate(Datum = format(Datum, "%d.%m.%Y")) %>%
+  t() %>%
+ set_colnames(.[1, ]) %>%
+ .[2:nrow(.), ] %>%
+  set_rownames(c(
+    "Neuinfektionen in München",
+    "Inzidenz 7 Tage / 100.000 Einwohner",
+    " - GSR",
+    " - LGL-Meldung",
+    " - RKI-Meldung"
+)) %>%
+  kable() %>%
+     kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+    footnote(general = "Gesundheitsreferat, Meldewesen",
+             general_title  = "Quelle: ",
+             title_format = c("italic", "underline")) %>%     
+  footnote(general = "Die 7-Tage-Inzidenz / 100.000 Einwohner in München wird einheitlich (GSR, LGL, RKI) für 1.488.202 Einwohner berechnet (Stand: 31.12.2020). Bei RKI und LGL sind jeweils die 'historischen' gemeldeten Inzidenzen am betreffenden Tag angegeben, während die GSR-Inzidenzen dynamisch sind, sich also durch Nachmeldungen nachträglich noch ändern können.",
+             
+           general_title  = "Note:",
+           title_format = c("italic", "underline"))
+
+```
+
+`r if(params$eval7TageInzidenz_Impfstatus){"******"}`
+`r if(params$eval7TageInzidenz_Impfstatus){"# Impfstatus (7-Tage-Inzidenz)"}`
+
+```{r inzidenz_new_inf, echo=params$echoCode & params$eval7TageInzidenz_Impfstatus, eval=params$eval7TageInzidenz_Impfstatus, warning=FALSE, message=FALSE}
+
+inz_data <- gather_inz_data(input_data = octo_complete_history,
+                            vacc_data_input = vacc_data)
+
+make_inz_tab(
+  inz_data,
+  footnote_general = 
+    paste0("Die Berechnung basiert auf den",
+           " Zahlen, die in der Tabelle ‘Impfquote’ angegeben ",
+           "sind, und unterliegt somit den dort genannten",
+           " Einschränkungen hinsichtlich der Vollständigkeit ",
+           "und Interpretierbarkeit der erfassten Impfungen. ",
+           "Hinzu kommt ein Meldeverzug bei der Erfassung des", 
+           " Impfstatus neuinfizierter Personen. Die pro 100.000 ", 
+           "Angaben sind daher nur approximativ."))
+
+
+```
+`r if(params$eval7TageInzidenz_Hospitalisierung){"******"}`
+`r if(params$eval7TageInzidenz_Hospitalisierung){"# Hospitalisierungen (7-Tage-Inzidenz)"}`
+
+```{r inzidenz_hosp, echo=params$echoCode & params$eval7TageInzidenz_Hospitalisierung, eval=params$eval7TageInzidenz_Hospitalisierung, warning=FALSE, message=FALSE}
+
+inz_data <- gather_inz_data(
+  input_data = octo_complete_history,
+  vacc_data_input = vacc_data,
+  input_date_var = "Hospitalisierung_Krankenhaus_Aufnahme")
+
+make_inz_tab(
+  inz_data,
+  footnote_general = 
+    paste0("Die Berechnung basiert auf den",
+           " Zahlen, die in der Tabelle ‘Impfquote’ angegeben ",
+           "sind, und unterliegt somit den dort genannten",
+           " Einschränkungen hinsichtlich der Vollständigkeit ",
+           "und Interpretierbarkeit der erfassten Impfungen. ",
+           "Hinzu kommt ein Meldeverzug bei der Erfassung des", 
+           " Impfstatus neuinfizierter Personen. Die pro 100.000 ", 
+           "Angaben sind daher nur approximativ. Die neuen Fälle ",
+           "beziehen sich auf das Datum des Beginns der ", 
+           " Krankenhausaufnahme."))
+
+```
+
+`r if(params$eval7TageInzidenz_ICU){"******"}`
+`r if(params$eval7TageInzidenz_ICU){"# ICU (7-Tage-Inzidenz)"}`
+
+```{r inzidenz_icu, echo=params$echoCode & params$eval7TageInzidenz_ICU, eval=params$eval7TageInzidenz_ICU, warning=FALSE, message=FALSE}
+
+inz_data <- gather_inz_data(
+  input_data = octo_complete_history,
+  vacc_data_input = vacc_data,
+  input_date_var = "Hospitalisierung_Krankenhaus_ITS_von")
+
+make_inz_tab(
+  inz_data,
+  footnote_general = 
+    paste0("Die Berechnung basiert auf den",
+           " Zahlen, die in der Tabelle ‘Impfquote’ angegeben ",
+           "sind, und unterliegt somit den dort genannten",
+           " Einschränkungen hinsichtlich der Vollständigkeit ",
+           "und Interpretierbarkeit der erfassten Impfungen. ",
+           "Hinzu kommt ein Meldeverzug bei der Erfassung des", 
+           " Impfstatus neuinfizierter Personen. Die pro 100.000 ", 
+           "Angaben sind daher nur approximativ. Die neuen Fälle ",
+           "beziehen sich auf das Datum des Beginns der ", 
+           " Intensivversorgung."))
+
+```
+
+`r if(params$evalVerdopplungszahl){"******"}`
+`r if(params$evalVerdopplungszahl){"# Verdopplungszahl"}`
+
+```{r Verdopplungsrate, echo=params$echoCode & params$evalVerdopplungszahl, eval=params$evalVerdopplungszahl}
+
+recent_data_3d %>%
+  ungroup() %>%
+  mutate(Datum = format(Datum, "%d.%m.%Y")) %>%
+  group_by(Datum) %>% 
+  dplyr::select(Datum, 
+                RateDoubled_Germany, 
+                RateDoubled_Bavaria
+  ) %>%
+  
+  left_join(
+    octo_complete %>%
+      dplyr::select(Datum, VerdopplungsZahlMUC) %>%
+      mutate(Datum = format(Datum, "%d.%m.%Y"))
+    ,
+    
+    by = c('Datum')
+  ) %>%
+  arrange(Datum) %>%
+  filter(Datum == max(.$Datum)) %>%
+  t() %>%
+  as.data.frame() %>%
+  mutate(Datum = V1[1]) %>%
+  .[2:nrow(.), ] %>% 
+  set_rownames(c(
+    "Deutschland",
+    "Bayern",
+    "München")) %>%
+  ## R(t) as well as Verdopplungszahl date back 3 days.
+  magrittr::set_colnames(c("Verdopplungszahl", "Datum")) %>%
+  #mutate(Datum = format(Datum, "%d.%m.%Y")) %>%
+  kable() %>%
+  kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+  footnote(general = "Gesundheitsreferat; Versorgungsmanagement, Gesundheit und Pflege",
+           general_title  = "Quelle: ",
+           title_format = c("italic", "underline")) %>% 
+  footnote(general = "Die Verdopplungszahl ist definiert als die Anzahl der Tage, seitdem die kumulative Fallzahl der bestätigten Fälle letztmals kleiner oder gleich der Hälfte der aktuellen kumulativen Fallzahl war. Damit lässt sich die Verdopplungszahl als die Zeit interpretieren, innerhalb derer sich bei einer Fortsetzung der Pandemie bei gleichbleibendem Wachstum die kumulative Fallzahl erneut verdoppeln würde. Es gilt jedoch zu beachten, dass die Verdopplungszahl nur bei Vorliegen eines exponentiellen Wachstums eine sinnvolle Aussage macht, im Falle eines stagnierenden oder abnehmenden Wachstums jedoch schwierig zu interpretieren ist.",
+           general_title  = "Note: ",
+           title_format = c("italic", "underline"))
+
+```
+
+`r if(params$evalReproduktionsrate){"******"}`
+`r if(params$evalReproduktionsrate){"# Reproduktionsrate"}`
+
+```{r Basisreproduktionsrate, echo=params$echoCode & params$evalReproduktionsrate, eval=params$evalReproduktionsrate}
+r_t_table <- 
+  rbind(
+    
+    Rt_bayern %>%
+      mutate(
+        Rt_value = 
+          paste0(round(R_t_bayern, 2), footnote_marker_number(1))) %>%
+      dplyr::select(Rt_value, Datum) %>%
+      filter(Datum == max(Datum)),
+    
+    Rt_muenchen %>%
+      mutate(
+        Rt_value = 
+          paste0(round(R_t_muenchen, 2), footnote_marker_number(2))) %>%
+      dplyr::select(Rt_value, Datum) %>%
+      filter(Datum == max(Datum))
+    
+    ) %>%
+  as.data.frame() %>%
+  magrittr::set_colnames(c("Reproduktionsrate", "Datum")) %>%
+  mutate(Datum = format(Datum, "%d.%m.%Y")) %>%  
+  magrittr::set_rownames(c(
+    "Bayern",
+    "München"))
+
+#change entries in order to have the correct numbers for the footnotes:
+
+
+r_t_table %>% 
+  kable(escape = F) %>%
+     kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+  footnote(number = c(
+    paste0("KI Bayern:  ",
+    Rt_bayern %>% 
+      mutate(KI = paste0(
+        ' [', round(KI_lower_bayern, 2), ', ',
+               round(KI_upper_bayern, 2), ']'
+      )) %>% 
+      dplyr::select(KI, Datum) %>% 
+      filter(Datum == max(Datum)) %>% 
+      pull(KI)),
+    
+    paste0("KI München:  ",
+    Rt_muenchen %>% 
+      mutate(KI = paste0(
+        ' [', round(KI_lower_muenchen, 2), ', ',
+               round(KI_upper_muenchen, 2), ']'
+      )) %>% 
+      dplyr::select(KI, Datum) %>% 
+      filter(Datum == max(Datum)) %>% 
+      pull(KI))
+    
+  ),number_title = "95%-Kredibilitätsintervalle: ",
+    title_format = c("italic", "underline")
+    ) %>% 
+    footnote(general = "StaBLab LMU",
+             general_title  = "Quelle: ",
+             title_format = c("italic", "underline")) %>%
+   footnote(general = paste0("Das inhaltliche Bezugsdatum des R(t) ist für Bayern der ", 
+                             c(format(max(Rt_bayern$Datum_inhaltlich), "%d.%m.%Y")), " und für München der ",
+                             c(format(max(Rt_muenchen$Datum_inhaltlich), "%d.%m.%Y")), "."),
+             general_title  = "Note: ",
+             title_format = c("italic", "underline"))
+
+```
+
+`r if(params$evalAltersverteilungGesamt){"******"}`
+`r if(params$evalAltersverteilungGesamt){"# Altersverteilung Gesamt"}`
+
+```{r Altersverteilung Gesamt, echo=params$echoCode & params$evalAltersverteilungGesamt, eval=params$evalAltersverteilungGesamt}
+## select data
+age_tab <- getAgeTable(recent_data_3d %>% dplyr::select(Datum | starts_with("age_") & -ends_with("new") & -ends_with("dead")))
+## kable
+age_tab %>%
+    kable() %>%
+     kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+    footnote(general = "Gesundheitsreferat, Meldewesen",
+             general_title  = "Quelle: ",
+             title_format = c("italic", "underline")) %>%
+  footnote(general = paste0("Durchschnittsalter: ", Alter_Erstmeldung_var, " Jahre"),
+           general_title  = "Note: ",
+           title_format = c("italic", "underline")) %>%
+  footnote(general = "NA steht hier für nicht angegebene Information zum Geschlecht.",
+           general_title  = " ",
+           title_format = c("italic", "underline"))
+```
+
+`r if(params$evalAltersverteilungNeuinfektionen){"*****"}`
+`r if(params$evalAltersverteilungNeuinfektionen){"# Altersverteilung Neuinfektionen"}`
+
+```{r Altersverteilung Neuinfektionen, echo=params$echoCode & params$evalAltersverteilungNeuinfektionen, eval=params$evalAltersverteilungNeuinfektionen}
+
+# select data
+age_tab <- getAgeTable(recent_data_3d %>% dplyr::select(Datum | starts_with("age_") & ends_with("new") & -ends_with("dead_new")))
+## kable
+age_tab %>%
+    kable() %>%
+     kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+    footnote(general = "Gesundheitsreferat, Meldewesen",
+             general_title  = "Quelle: ",
+             title_format = c("italic", "underline")) %>%
+  footnote(general = paste0("Durchschnittsalter: ", Alter_Erstmeldung_prev, " Jahre"),
+           general_title  = "Note: ",
+           title_format = c("italic", "underline")) %>%
+  footnote(general = "NA steht hier für nicht angegebene Information zum Geschlecht.",
+           general_title  = " ",
+           title_format = c("italic", "underline"))
+
+
+```
+
+`r if(params$evalAltersverteilungVerstorbene){"*****"}`
+`r if(params$evalAltersverteilungVerstorbene){"# Altersverteilung Verstorbene"}`
+
+```{r Altersverteilung evalAltersverteilungVerstorbene, echo=params$echoCode & params$evalAltersverteilungVerstorbene, eval=params$evalAltersverteilungNeuverstorbene}
+
+# select data
+age_tab <- getAgeTable(recent_data_3d %>% dplyr::select(Datum | starts_with("age_") & ends_with("dead")))
+
+## kable
+age_tab %>%
+    kable() %>%
+     kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+    footnote(general = "Gesundheitsreferat, Meldewesen",
+             general_title  = "Quelle: ",
+             title_format = c("italic", "underline")) %>%
+  footnote(general = "Es werden nur Meldedaten der letzten 4 Wochen zuverlässig im Blick behalten.",
+           general_title  = "Note: ",
+           title_format = c("italic", "underline")) %>%
+  footnote(general = "NA steht hier für nicht angegebene Information zum Geschlecht.",
+           general_title  = " ",
+           title_format = c("italic", "underline"))
+
+
+```
+
+`r if(params$evalEinrichtungen){"******"}`
+`r if(params$evalEinrichtungen){"# Ausbrüche in Einrichtungen"}`
+
+```{r Einrichtungen, echo=params$echoCode & params$evalEinrichtungen, eval=params$evalEinrichtungen}
+
+einrichtungen_tab <- recent_einrichtungen_data %>%
+  dplyr::select(Type_Facility, 
+                #Sum_Outbreaks, 
+                Sum_Facilities, 
+                Sum_Patients, 
+                Sum_Staff) %>%
+  magrittr::set_colnames(c("", 
+             #"Ausbrüche", 
+             "Betroffene Einrichtungen",
+             "Fälle ohne Personal",
+             "Fälle im Personal"))
+
+
+klassen_ab <- recent_einrichtungen_data$Sum_Outbreaks[recent_einrichtungen_data$Type_Facility == "Allgemeinbildende Schulen"]
+klassen_ab <- ifelse(is_empty(klassen_ab), 0, klassen_ab)
+
+klassen_bb <- recent_einrichtungen_data$Sum_Outbreaks[recent_einrichtungen_data$Type_Facility == "Berufsbildende Schulen"]
+klassen_bb <- ifelse(is_empty(klassen_bb), 0, klassen_bb)
+  
+## footnote marker  
+k <- which(colnames(einrichtungen_tab) ==  "Fälle ohne Personal")
+names(einrichtungen_tab)[k] <- paste0(names(einrichtungen_tab)[k], 
+                                footnote_marker_symbol(1))
+## render table
+einrichtungen_tab %>%  
+  kable(escape = FALSE) %>%
+  kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+    footnote(general = "Gesundheitsreferat, Contact Tracing Teams",
+    general_title  = "Quelle: ",
+    title_format = c("italic", "underline")) %>%
+  footnote(symbol = paste0(
+      "d.h. SchülerInnen, KiTa-Kinder, BewohnerInnen, etc.; Meldungen aktualisiert am: ", 
+      format(unique((recent_einrichtungen_data$Datum)), "%d.%m.%Y")
+    ),
+    symbol_title =  "Note:",
+    title_format = c("italic", "underline")
+  ) %>%
+  footnote(symbol = paste0("COVID19-Fälle unter den Patient\\*innen (Ausbruch assoziiert) werden in den Kliniken nur unvollständig erfasst. Derzeit sind ", klassen_ab + klassen_bb, " von 6785 (", round(100*(klassen_ab+klassen_bb)/6785, 2),"%) Klassen an allgemein- oder berufsbildenden Schulen betroffen. Um Doppelzählungen zu vermeiden, werden Schulkinder nur bei den Schulen erfasst, nicht bei den Horten und sonstigen betreuenden Einrichtungen."),
+    symbol_title =  "Note:",
+    title_format = c("italic", "underline")) 
+```
+
+
+`r if(params$evalTestungenNeu){"******"}`
+`r if(params$evalTestungenNeu){"# Anzahl durchgeführter Tests (Teststation Theresienwiese) seit 29.07.2020"}`
+
+```{r TestungenNeu, echo=params$echoCode & params$evalTestungenNeu, eval=params$evalTestungenNeu}
+
+if (params$evalThirdParty == FALSE) {
+  
+  testungen_data %>% 
+  # Strings der Form "{kumulierte Zahl} (+{Inzidenz})" zusammensetzen
+  mutate(`Mobile Entnahmen durchgeführt` = str_glue('{`Mobile Entnahmen durchgeführt_kum`} (+{`Mobile Entnahmen durchgeführt`})')) %>%
+  mutate(`Mobile Einzeltestung` = str_glue('{`Mobile Einzeltestung_kum`} (+{`Mobile Einzeltestung`})')) %>%
+  mutate(`Mobile Reihentestung` = str_glue('{`Mobile Reihentestung_kum`} (+{`Mobile Reihentestung`})')) %>%
+  mutate(`Theresienwiese "Jedermann" - Anmeldungen` = str_glue('{`Theresienwiese "Jedermann" - Anmeldungen_kum`} (+{`Theresienwiese "Jedermann" - Anmeldungen`})')) %>%
+  mutate(`Jedermann-Testungen/Corona-Warn-App durchgeführt` = str_glue('{`Jedermann-Testungen/Corona-Warn-App durchgeführt_kum`} (+{`Jedermann-Testungen/Corona-Warn-App durchgeführt`})')) %>%
+  mutate(`Theresienwiese "Jedermann" freiwillig - getestet` = str_glue('{`Theresienwiese "Jedermann" freiwillig - getestet_kum`} (+{`Theresienwiese "Jedermann" freiwillig - getestet`})')) %>%
+  mutate(`Theresienwiese "Jedermann" COVID-APP - getestet` = str_glue('{`Theresienwiese "Jedermann" COVID-APP - getestet_kum`} (+{`Theresienwiese "Jedermann" COVID-APP - getestet`})')) %>%
+  mutate(`Theresienwiese "Jedermann" Rückreise - getestet` = str_glue('{`Theresienwiese "Jedermann" Rückreise - getestet_kum`} (+{`Theresienwiese "Jedermann" Rückreise - getestet`})')) %>%
+  mutate(`Theresienwiese KP1 - getestet` = str_glue('{`Theresienwiese KP1 - getestet_kum`} (+{`Theresienwiese KP1 - getestet`})')) %>%
+  mutate(`Theresienwiese KRITIS - getestet` = str_glue('{`Theresienwiese KRITIS - getestet_kum`} (+{`Theresienwiese KRITIS - getestet`})')) %>%
+  mutate(`RBS - getestet` = str_glue('{`RBS - getestet_kum`} (+{`RBS - getestet`})')) %>%
+  mutate(`Theresienwiese Schnelltest stat. Einrichtungen - angemeldet` = str_glue('{`Theresienwiese Schnelltest stat. Einrichtungen angemeldet_kum`} (+{`Theresienwiese Schnelltest stat. Einrichtungen – angemeldet`})')) %>%
+  mutate(`Theresienwiese Schnelltest stat. Einrichtungen – getestet` = str_glue('{`Theresienwiese Schnelltest stat. Einrichtungen getestet_kum`} (+{`Theresienwiese Schnelltest stat. Einrichtungen – getestet`})')) %>%
+  mutate(`Theresienwiese Schnelltest Schule – angemeldet` = str_glue('{`Theresienwiese Schnelltest Schule angemeldet_kum`} (+{`Theresienwiese Schnelltest Schule – angemeldet`})')) %>%
+  mutate(`Theresienwiese Schnelltest Schule – getestet` = str_glue('{`Theresienwiese Schnelltest Schule getestet_kum`} (+{`Theresienwiese Schnelltest Schule – getestet`})')) %>%
+  mutate(`Theresienwiese Schnelltest Jedermann – angemeldet` = str_glue('{`Theresienwiese Schnelltest Jedermann angemeldet_kum`} (+{`Theresienwiese Schnelltest Jedermann – angemeldet`})')) %>%
+  mutate(`Theresienwiese Schnelltest Jedermann – getestet` = str_glue('{`Theresienwiese Schnelltest Jedermann getestet_kum`} (+{`Theresienwiese Schnelltest Jedermann – getestet`})')) %>%
+  mutate(`Theresienwiese - PCR-Test nach positivem Schnelltest` = str_glue('{`Theresienwiese - PCR-Test nach pos. Schnelltest_kum`} (+{`Theresienwiese - PCR-Test nach pos. Schnelltest`})')) %>%  
+  mutate(`Mobile Schultestung - geplant` = str_glue('{`Mobile Schultestung - geplant_kum`} (+{`Mobile Schultestung - geplant`})')) %>%
+  mutate(`Mobile Schultestung - getestet` = str_glue('{`Mobile Schultestung - getestet_kum`} (+{`Mobile Schultestung - getestet`})')) %>%
+  # Kumulierte Spalten werden nicht mehr benötigt
+  dplyr::select(
+    `Datum auswählen`, 
+    `Mobile Entnahmen durchgeführt`,
+    `Mobile Einzeltestung`, 
+    `Mobile Reihentestung`, 
+    `Theresienwiese "Jedermann" - Anmeldungen`, 
+    `Jedermann-Testungen/Corona-Warn-App durchgeführt`,
+    `Theresienwiese "Jedermann" freiwillig - getestet`,
+    `Theresienwiese "Jedermann" COVID-APP - getestet`,
+    `Theresienwiese "Jedermann" Rückreise - getestet`,
+    `Theresienwiese KP1 - getestet`,
+    `Theresienwiese KRITIS - getestet`,
+    `RBS - getestet`,
+    `Theresienwiese Schnelltest stat. Einrichtungen - angemeldet`,
+    `Theresienwiese Schnelltest stat. Einrichtungen – getestet`,
+    `Theresienwiese Schnelltest Schule – angemeldet`,
+    `Theresienwiese Schnelltest Schule – getestet`,
+    `Theresienwiese Schnelltest Jedermann – angemeldet`,
+    `Theresienwiese Schnelltest Jedermann – getestet`,
+    `Theresienwiese - PCR-Test nach positivem Schnelltest`,
+    
+    `Mobile Schultestung - geplant`,
+    `Mobile Schultestung - getestet`
+  ) %>%
+  # Künftige Zeilennamen vorbereiten
+  rename(`Jedermann-Testungen/Corona-Warn-App angemeldet` = `Theresienwiese "Jedermann" - Anmeldungen`) %>%
+  rename(`Jedermann-Testungen` = `Theresienwiese "Jedermann" freiwillig - getestet`) %>%
+  rename(`Corona-Warn-App` = `Theresienwiese "Jedermann" COVID-APP - getestet`) %>%
+  rename(`Reiserückkehrer*innen` = `Theresienwiese "Jedermann" Rückreise - getestet`) %>%
+  rename(`Drive in KP1` = `Theresienwiese KP1 - getestet`) %>%
+  rename(`Drive in KRITIS` = `Theresienwiese KRITIS - getestet`) %>%
+  rename(`RBS¹ (seit 17.08.2020)` = `RBS - getestet`) %>%
+  rename(`Schnelltests stat. Einrichtungen angemeldet (seit 18.12.2020)` = `Theresienwiese Schnelltest stat. Einrichtungen - angemeldet`) %>%
+  rename(`Schnelltests stat. Einrichtungen durchgeführt (seit 18.12.2020)` = `Theresienwiese Schnelltest stat. Einrichtungen – getestet`) %>%
+  rename(`Schnelltests Schule angemeldet (seit 27.02.2021)` = `Theresienwiese Schnelltest Schule – angemeldet`) %>%
+  rename(`Schnelltests Schule durchgeführt (seit 27.02.2021)` = `Theresienwiese Schnelltest Schule – getestet`) %>%
+  rename(`Schnelltests Jedermann angemeldet (seit 06.04.2021)` = `Theresienwiese Schnelltest Jedermann – angemeldet`) %>%
+  rename(`Schnelltests Jedermann durchgeführt (seit 06.04.2021)` = `Theresienwiese Schnelltest Jedermann – getestet`) %>%
+  rename(`PCR-Test nach positivem Schnelltest (seit 20.07.2021)` =
+`Theresienwiese - PCR-Test nach positivem Schnelltest`) %>%      
+  rename(`Mobile Schultestungen geplant` = `Mobile Schultestung - geplant`) %>%
+  rename(`Mobile Schultestungen durchgeführt` = `Mobile Schultestung - getestet`) %>%
+  mutate(`Datum auswählen` = format.Date(`Datum auswählen`, "%d.%m.%Y")) %>%
+  # Letzte drei Tage
+  tail(3) %>%
+  # Tabelle transponieren (https://stackoverflow.com/a/40307807)
+  pivot_longer(-`Datum auswählen`) %>% 
+  pivot_wider(names_from = `Datum auswählen`, values_from = value) %>%
+  rename(Kategorie = name) %>%
+  # Ausgabe
+  kable() %>%
+  kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+  add_indent(c(2, 3, 6, 7, 8), level_of_indent = 2) %>%
+  pack_rows("Mobile Entnahmen", 1, 3) %>%
+  pack_rows("Theresienwiese", 4, 18) %>%
+  pack_rows("Mobile Schultestungen¹", 19, 20) %>%
+  footnote(general = "AICHER GROUP GmbH & Co. KG",
+             general_title  = "Quelle: ",
+             title_format = c("italic", "underline")) %>%
+  footnote(general = "Das Referat für Bildung und Sport hat ein eigenes Kontingent für Testungen auf der Theresienwiese, speziell für Lehrkräfte. Diese werden in der Zeile „RBS“ abgebildet. Die mobilen Schultestungen finden vor Ort in den Schulen statt. Dabei werden aber alle Kontaktpersonen getestet, also nicht nur Lehrer\\*innen, sondern auch Schüler\\*innen.",
+           general_title  = "Abgrenzung RBS zu mobilen Schultestungen: ",
+           title_format = c("italic", "underline")) %>%
+  footnote(general = '"Drive-in KRITIS" umfasst Testungen von medizinischem Personal und "Drive-in KP1" Testungen von Kontaktpersonen.',
+           general_title  = "Drive-in KRITIS und Drive-in KP1: ",
+           title_format = c("italic", "underline")) %>% 
+  footnote(general = "Die Anzahl der 'Jedermann-Testungen / Corona Warn App' enthält 'Jedermann-Testungen' gemäß der Bayerischen Teststrategie, Testungen von Reiserückkehrer*innen und Testungen, die auf Empfehlung aus der Corona-Warn App durchgeführt wurden. Derzeit wird an der Teststation an der Theresienwiese von Mo.-So. getestet.",
+             
+           general_title  = "Jedermann-Testungen:",
+           title_format = c("italic", "underline"))
+  
+} else {
+  
+  ## Hier fehlt das Argument level_of_indent, da es in der Paketversion, die
+  ## STATUP verwendet, nicht existiert.
+  
+  testungen_data %>% 
+  # Strings der Form "{kumulierte Zahl} (+{Inzidenz})" zusammensetzen
+  mutate(`Mobile Entnahmen durchgeführt` = str_glue('{`Mobile Entnahmen durchgeführt_kum`} (+{`Mobile Entnahmen durchgeführt`})')) %>%
+  mutate(`Mobile Einzeltestung` = str_glue('{`Mobile Einzeltestung_kum`} (+{`Mobile Einzeltestung`})')) %>%
+  mutate(`Mobile Reihentestung` = str_glue('{`Mobile Reihentestung_kum`} (+{`Mobile Reihentestung`})')) %>%
+  mutate(`Theresienwiese "Jedermann" - Anmeldungen` = str_glue('{`Theresienwiese "Jedermann" - Anmeldungen_kum`} (+{`Theresienwiese "Jedermann" - Anmeldungen`})')) %>%
+  mutate(`Jedermann-Testungen/Corona-Warn-App durchgeführt` = str_glue('{`Jedermann-Testungen/Corona-Warn-App durchgeführt_kum`} (+{`Jedermann-Testungen/Corona-Warn-App durchgeführt`})')) %>%
+  mutate(`Theresienwiese "Jedermann" freiwillig - getestet` = str_glue('{`Theresienwiese "Jedermann" freiwillig - getestet_kum`} (+{`Theresienwiese "Jedermann" freiwillig - getestet`})')) %>%
+  mutate(`Theresienwiese "Jedermann" COVID-APP - getestet` = str_glue('{`Theresienwiese "Jedermann" COVID-APP - getestet_kum`} (+{`Theresienwiese "Jedermann" COVID-APP - getestet`})')) %>%
+  mutate(`Theresienwiese "Jedermann" Rückreise - getestet` = str_glue('{`Theresienwiese "Jedermann" Rückreise - getestet_kum`} (+{`Theresienwiese "Jedermann" Rückreise - getestet`})')) %>%
+  mutate(`Theresienwiese KP1 - getestet` = str_glue('{`Theresienwiese KP1 - getestet_kum`} (+{`Theresienwiese KP1 - getestet`})')) %>%
+  mutate(`Theresienwiese KRITIS - getestet` = str_glue('{`Theresienwiese KRITIS - getestet_kum`} (+{`Theresienwiese KRITIS - getestet`})')) %>%
+  mutate(`RBS - getestet` = str_glue('{`RBS - getestet_kum`} (+{`RBS - getestet`})')) %>%
+  mutate(`Theresienwiese Schnelltest stat. Einrichtungen - angemeldet` = str_glue('{`Theresienwiese Schnelltest stat. Einrichtungen angemeldet_kum`} (+{`Theresienwiese Schnelltest stat. Einrichtungen – angemeldet`})')) %>%
+  mutate(`Theresienwiese Schnelltest stat. Einrichtungen – getestet` = str_glue('{`Theresienwiese Schnelltest stat. Einrichtungen getestet_kum`} (+{`Theresienwiese Schnelltest stat. Einrichtungen – getestet`})')) %>%
+  mutate(`Theresienwiese Schnelltest Schule – angemeldet` = str_glue('{`Theresienwiese Schnelltest Schule angemeldet_kum`} (+{`Theresienwiese Schnelltest Schule – angemeldet`})')) %>%
+  mutate(`Theresienwiese Schnelltest Schule – getestet` = str_glue('{`Theresienwiese Schnelltest Schule getestet_kum`} (+{`Theresienwiese Schnelltest Schule – getestet`})')) %>%
+  mutate(`Theresienwiese Schnelltest Jedermann – angemeldet` = str_glue('{`Theresienwiese Schnelltest Jedermann angemeldet_kum`} (+{`Theresienwiese Schnelltest Jedermann – angemeldet`})')) %>%
+  mutate(`Theresienwiese Schnelltest Jedermann – getestet` = str_glue('{`Theresienwiese Schnelltest Jedermann getestet_kum`} (+{`Theresienwiese Schnelltest Jedermann – getestet`})')) %>%
+  mutate(`Mobile Schultestung - geplant` = str_glue('{`Mobile Schultestung - geplant_kum`} (+{`Mobile Schultestung - geplant`})')) %>%
+  mutate(`Mobile Schultestung - getestet` = str_glue('{`Mobile Schultestung - getestet_kum`} (+{`Mobile Schultestung - getestet`})')) %>%
+  # Kumulierte Spalten werden nicht mehr benötigt
+  dplyr::select(
+    `Datum auswählen`, 
+    `Mobile Entnahmen durchgeführt`,
+    `Mobile Einzeltestung`, 
+    `Mobile Reihentestung`, 
+    `Theresienwiese "Jedermann" - Anmeldungen`, 
+    `Jedermann-Testungen/Corona-Warn-App durchgeführt`,
+    `Theresienwiese "Jedermann" freiwillig - getestet`,
+    `Theresienwiese "Jedermann" COVID-APP - getestet`,
+    `Theresienwiese "Jedermann" Rückreise - getestet`,
+    `Theresienwiese KP1 - getestet`,
+    `Theresienwiese KRITIS - getestet`,
+    `RBS - getestet`,
+    `Theresienwiese Schnelltest stat. Einrichtungen - angemeldet`,
+    `Theresienwiese Schnelltest stat. Einrichtungen – getestet`,
+    `Theresienwiese Schnelltest Schule – angemeldet`,
+    `Theresienwiese Schnelltest Schule – getestet`,
+    `Theresienwiese Schnelltest Jedermann – angemeldet`,
+    `Theresienwiese Schnelltest Jedermann – getestet`,
+    `Mobile Schultestung - geplant`,
+    `Mobile Schultestung - getestet`
+  ) %>%
+  # Künftige Zeilennamen vorbereiten
+  rename(`Jedermann-Testungen/Corona-Warn-App angemeldet` = `Theresienwiese "Jedermann" - Anmeldungen`) %>%
+  rename(`Jedermann-Testungen` = `Theresienwiese "Jedermann" freiwillig - getestet`) %>%
+  rename(`Corona-Warn-App` = `Theresienwiese "Jedermann" COVID-APP - getestet`) %>%
+  rename(`Reiserückkehrer*innen` = `Theresienwiese "Jedermann" Rückreise - getestet`) %>%
+  rename(`Drive in KP1` = `Theresienwiese KP1 - getestet`) %>%
+  rename(`Drive in KRITIS` = `Theresienwiese KRITIS - getestet`) %>%
+  rename(`RBS¹ (seit 17.08.2020)` = `RBS - getestet`) %>%
+  rename(`Schnelltests stat. Einrichtungen angemeldet (seit 18.12.2020)` = `Theresienwiese Schnelltest stat. Einrichtungen - angemeldet`) %>%
+  rename(`Schnelltests stat. Einrichtungen durchgeführt (seit 18.12.2020)` = `Theresienwiese Schnelltest stat. Einrichtungen – getestet`) %>%
+  rename(`Schnelltests Schule angemeldet (seit 27.02.2021)` = `Theresienwiese Schnelltest Schule – angemeldet`) %>%
+  rename(`Schnelltests Schule durchgeführt (seit 27.02.2021)` = `Theresienwiese Schnelltest Schule – getestet`) %>%
+  rename(`Schnelltests Jedermann angemeldet (seit 06.04.2021)` = `Theresienwiese Schnelltest Jedermann – angemeldet`) %>%
+  rename(`Schnelltests Jedermann durchgeführt (seit 06.04.2021)` = `Theresienwiese Schnelltest Jedermann – getestet`) %>%
+  rename(`Mobile Schultestungen geplant` = `Mobile Schultestung - geplant`) %>%
+  rename(`Mobile Schultestungen durchgeführt` = `Mobile Schultestung - getestet`) %>%
+  mutate(`Datum auswählen` = format.Date(`Datum auswählen`, "%d.%m.%Y")) %>%
+  # Letzte drei Tage
+  tail(3) %>%
+  # Tabelle transponieren (https://stackoverflow.com/a/40307807)
+  pivot_longer(-`Datum auswählen`) %>% 
+  pivot_wider(names_from = `Datum auswählen`, values_from = value) %>%
+  rename(Kategorie = name) %>%
+  # Ausgabe
+  kable() %>%
+  kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+  add_indent(c(2, 3, 6, 7, 8)) %>%
+  pack_rows("Mobile Entnahmen", 1, 3) %>%
+  pack_rows("Theresienwiese", 4, 17) %>%
+  pack_rows("Mobile Schultestungen¹", 18, 19) %>%
+  footnote(general = "AICHER GROUP GmbH & Co. KG",
+             general_title  = "Quelle: ",
+             title_format = c("italic", "underline")) %>%
+  footnote(general = "Das Referat für Bildung und Sport hat ein eigenes Kontingent für Testungen auf der Theresienwiese, speziell für Lehrkräfte. Diese werden in der Zeile „RBS“ abgebildet. Die mobilen Schultestungen finden vor Ort in den Schulen statt. Dabei werden aber alle Kontaktpersonen getestet, also nicht nur Lehrer\\*innen, sondern auch Schüler\\*innen.",
+           general_title  = "Abgrenzung RBS zu mobilen Schultestungen: ",
+           title_format = c("italic", "underline")) %>%
+  footnote(general = '"Drive-in KRITIS" umfasst Testungen von medizinischem Personal und "Drive-in KP1" Testungen von Kontaktpersonen.',
+           general_title  = "Drive-in KRITIS und Drive-in KP1: ",
+           title_format = c("italic", "underline")) %>% 
+  footnote(general = "Die Anzahl der 'Jedermann-Testungen / Corona Warn App' enthält 'Jedermann-Testungen' gemäß der Bayerischen Teststrategie, Testungen von Reiserückkehrer*innen und Testungen, die auf Empfehlung aus der Corona-Warn App durchgeführt wurden. Derzeit wird an der Teststation an der Theresienwiese von Mo.-So. getestet.",
+             
+           general_title  = "Jedermann-Testungen:",
+           title_format = c("italic", "underline"))
+  
+}
+
+```
+
+`r if(params$evalDurchgefuehrteTests){"******"}`
+`r if(params$evalDurchgefuehrteTests){"# Anzahl durchgeführter Tests (Teststation Theresienwiese) seit 16.03.2020"}`
+
+```{r DriveIn, echo=params$echoCode & params$evalDurchgefuehrteTests, eval=params$evalDurchgefuehrteTests}
+testungen_data %>% 
+  # Strings der Form "{kummulierte Zahl} (+{Inzidenz})" zusammensetzen
+  mutate(`Mobile Entnahmen (seit 16.03.)` = str_glue('{`Mobile Entnahmen (seit 16.03.)`} (+{`Mobile Entnahmen durchgeführt`})')) %>%
+  mutate(`GSR-Theresienwiese (seit 16.03.)` = str_glue('{`GSR-Theresienwiese (seit 16.03.)`} (+{`Theresienwiese KP1 - getestet` + `Theresienwiese KRITIS - getestet`})')) %>%
+  dplyr::select(
+    `Datum auswählen`, 
+    `GSR-Theresienwiese (seit 16.03.)`, 
+    `Mobile Entnahmen (seit 16.03.)`
+  ) %>%
+  mutate(`Datum auswählen` = format.Date(`Datum auswählen`, "%d.%m.%Y")) %>%
+  # Letzte drei Tage
+  tail(3) %>%
+  # Tabelle transponieren (https://stackoverflow.com/a/40307807)
+  pivot_longer(-`Datum auswählen`) %>% 
+  pivot_wider(names_from = `Datum auswählen`, values_from = value) %>%
+  rename(Kategorie = name) %>%
+  kable() %>%
+  kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+  footnote(general = "AICHER GROUP GmbH & Co. KG",
+         general_title  = "Quelle: ",
+         title_format = c("italic", "underline")) %>%
+  footnote(general = 'GSR-Theresienwiese (seit 16.03.2020)" entspricht der kumulierten Anzahl der an der Teststation Theresienwiese durchgeführten "Drive in KP1"- und "Drive in KRITIS"-Testungen.',
+           general_title  = "Note: ",
+           title_format = c("italic", "underline"))
+
+```
+
+
+`r if(params$evalSelbsttestsSchulen){"******"}`
+`r if(params$evalSelbsttestsSchulen){"# Selbsttests an Schulen und KiTas"}`
+
+```{r SelbsttestsSchulen, echo=params$echoCode & params$evalSelbsttestsSchulen, eval=params$evalSelbsttestsSchulen}
+selbsttests_schulen %>%   
+  mutate(`Positivrate` = str_glue('{`Positivrate`} %')) %>% 
+  mutate(`PCR-Tests positiv` = `PCR positiv`) %>%
+  mutate(`PCR-Tests negativ` = `PCR negativ`) %>%
+  dplyr::select(
+    `KW`, 
+    `Anzahl Einrichtungen`, 
+    `Tests durchgeführt`,
+    `Tests positiv`, 
+    `Positivrate`,
+    `PCR-Tests positiv`, 
+    `PCR-Tests negativ`
+  ) %>%
+  # Letzte drei KWs
+  tail(3) %>%
+  kable() %>%
+  kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+  footnote(general = "Gesundheitsreferat, Team Schulen",
+         general_title  = "Quelle: ",
+         title_format = c("italic", "underline")) %>%
+  footnote(general = paste0("'Anzahl Einrichtungen' steht für die Anzahl der Schulen und KiTas, die in der jeweiligen Kalenderwoche (KW) eine Meldung abgegeben haben. \n Die Summe der positiven und negativen PCR-Tests weicht regelmäßig von der Zahl der positiven Selbsttests ab, da das Ergebnis der PCR-Testung erst mit einer Zeitverzögerung von bis zu 72 Stunden vorliegt. \n In der KW ", max(selbsttests_schulen$KW), " galt: ", selbsttests_schulen$Rahmenbedingungen[nrow(selbsttests_schulen)]), 
+           general_title  = "Note: ",
+           title_format = c("italic", "underline"))
+  
+```
+`r if(params$evalImpfungenAicher){"******"}`
+`r if(params$evalImpfungenAicher){"# Impfungen allgemein"}`
+
+```{r ImpfungenAicher, echo=params$echoCode & params$evalImpfungenAicher, eval=params$evalImpfungenAicher}
+aicher_vacc_data %>% 
+  # Strings der Form "{kumulierte Zahl} (+{Inzidenz})" zusammensetzen
+  mutate(`Impfdosen erhalten` = str_glue('{`Impfdosen erhalten kum`} (+{`Impfdosen erhalten`})')) %>%
+  mutate(`Impfdosen an Kliniken abgegeben` = str_glue('{`an Kliniken abgegeben kum`} (+{`an Kliniken abgegeben`})')) %>%
+  mutate(`Restbestand` = sprintf('%d (%+d)', `Restbestand`, `Restbestand diff`)) %>%
+  mutate(`Verwurf` = str_glue('{`Verwurf kum`} (+{`Verwurf`})')) %>%
+  mutate(`Mobil 1. Impfung` = str_glue('{`Mobil Erste Impfung kum`} (+{`Mobil Erste Impfung`})')) %>%
+  mutate(`Mobil 2. Impfung` = str_glue('{`Mobil Zweite Impfung kum`} (+{`Mobil Zweite Impfung`})')) %>%
+  mutate(`Messe 1. Impfung` = str_glue('{`Messe Erste Impfung kum`} (+{`Messe Erste Impfung`})')) %>%
+  mutate(`Messe 2. Impfung` = str_glue('{`Messe Zweite Impfung kum`} (+{`Messe Zweite Impfung`})')) %>%
+  mutate(`Impfungen gesamt` = str_glue('{`Tagessumme kum`} (+{`Tagessumme`})'))%>%
+  
+  dplyr::select(
+    `Datum`, 
+    `Impfdosen erhalten`, 
+    `Impfdosen an Kliniken abgegeben`,
+    `Restbestand`,
+    `Verwurf`,
+    `Mobil 1. Impfung`,
+    `Mobil 2. Impfung`,
+    `Messe 1. Impfung`,
+    `Messe 2. Impfung`,
+    `Impfungen gesamt`
+  ) %>%
+  mutate(`Datum` = format.Date(`Datum`, "%d.%m.%Y")) %>%
+  # Letzte drei Tage
+  tail(3) %>%
+  # Tabelle transponieren (https://stackoverflow.com/a/40307807)
+  pivot_longer(-`Datum`) %>% 
+  pivot_wider(names_from = `Datum`, values_from = value) %>%
+  rename(Kategorie = name) %>%
+  kable() %>%
+  kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+  footnote(general = "AICHER GROUP GmbH & Co. KG",
+         general_title  = "Quelle: ",
+         title_format = c("italic", "underline"))
+
+```
+
+
+`r if(params$evalImpfquote){"******"}`
+`r if(params$evalImpfquote){"# Impfquote"}`
+
+```{r Impfquote, echo=params$echoCode & params$evalImpfquote, eval=params$evalImpfquote}
+iq_data_3d %>% 
+  # Strings der Form "{kumulierte Zahl} (+{Tagesplus})" zusammensetzen
+  mutate(`Impfungen Gesamt` = str_glue('{`Impfung Gesamt`} (+{`Impfung Gesamt Plus`})')) %>%
+  mutate(`Erstimpfungen Gesamt` = str_glue('{`Erstimpfung Gesamt`} (+{`Erstimpfung Gesamt Plus`})')) %>%
+  mutate(`Erstimpfungen Quote 18+ Jahre / 12+ Jahre / Alle` = 
+           str_glue('{`Erstimpfung Quote 18+`}% / {`Erstimpfung Quote 12+`}% / {`Erstimpfung Quote alle`}%')) %>%
+  mutate(`Erstimpfungen Kliniken` = str_glue('{`Erstimpfung Kliniken`} (+{`Erstimpfung Kliniken Plus`})')) %>%
+  mutate(`Erstimpfungen Praxen` = str_glue('{`Erstimpfung Praxen`} (+{`Erstimpfung Praxen Plus`})')) %>%
+  mutate(`Erstimpfungen Impfzentrum Gesamt` = str_glue('{`Erstimpfung Impfzentrum Gesamt`} (+{`Erstimpfung Impfzentrum Gesamt Plus`})')) %>% 
+  mutate(`Zweitimpfungen Gesamt` = str_glue('{`Zweitimpfung Gesamt`} (+{`Zweitimpfung Gesamt Plus`})')) %>%
+  mutate(`Zweitimpfungen Quote 18+ Jahre / 12+ Jahre / Alle` = str_glue('{`Zweitimpfung Quote 18+`}% / {`Zweitimpfung Quote 12+`}% / {`Zweitimpfung Quote alle`}%')) %>%
+  mutate(`Zweitimpfungen Kliniken` = str_glue('{`Zweitimpfung Kliniken`} (+{`Zweitimpfung Kliniken Plus`})')) %>%
+  mutate(`Zweitimpfungen Praxen` = str_glue('{`Zweitimpfung Praxen`} (+{`Zweitimpfung Praxen Plus`})')) %>%
+  mutate(`Zweitimpfungen Impfzentrum Gesamt` = str_glue('{`Zweitimpfung Impfzentrum Gesamt`} (+{`Zweitimpfung Impfzentrum Gesamt Plus`})')) %>%
+  mutate(`Impfdurchbrüche` = str_glue('{`Impfdurchbrueche`} (+{`Impfdurchbrueche Plus`})')) %>% 
+  mutate(`Impfdurchbrüche Quotient (bezogen auf die Gesamtzahl der vollständig Geimpften)` = str_glue('{`Impfdurchbrueche Quotient`}%')) %>%  
+  mutate(`Impfdurchbrüche letzte 28 Tage` = str_glue('{`Impfdurchbrueche letzte 28 Tage`}')) %>% 
+  mutate(`Impfdurchbrüche letzte 28 Tage Quotient (bezogen auf die Gesamtzahl der Neuinfektionen in den letzten 28 Tagen)` = str_glue('{`Impfdurchbrueche Quotient2`}%')) %>%
+  
+  dplyr::select(
+    `Datum`, 
+    `Impfungen Gesamt`, 
+    `Erstimpfungen Gesamt`, 
+    `Erstimpfungen Quote 18+ Jahre / 12+ Jahre / Alle`,
+    `Erstimpfungen Kliniken`,
+    `Erstimpfungen Praxen`,
+    `Erstimpfungen Impfzentrum Gesamt`,
+    `Zweitimpfungen Gesamt`,
+    `Zweitimpfungen Quote 18+ Jahre / 12+ Jahre / Alle`,
+    `Zweitimpfungen Kliniken`,
+    `Zweitimpfungen Praxen`,
+    `Zweitimpfungen Impfzentrum Gesamt`,
+    `Impfdurchbrüche`,
+    `Impfdurchbrüche Quotient (bezogen auf die Gesamtzahl der vollständig Geimpften)`,    
+    `Impfdurchbrüche letzte 28 Tage`,
+    `Impfdurchbrüche letzte 28 Tage Quotient (bezogen auf die Gesamtzahl der Neuinfektionen in den letzten 28 Tagen)`,
+  ) %>%
+  mutate(`Datum` = format.Date(`Datum`, "%d.%m.%Y")) %>%
+  # Letzte drei Tage
+  tail(3) %>%
+  # Tabelle transponieren (https://stackoverflow.com/a/40307807)
+  pivot_longer(-`Datum`) %>% 
+  pivot_wider(names_from = `Datum`, values_from = value) %>%
+  rename(Kategorie = name) %>%
+  kable() %>%
+  kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+  add_indent(c(4:6, 9:11)) %>%
+  footnote(general = "GSR-C4 Impfzentrum ",
+         general_title  = "Quelle: ",
+         title_format = c("italic", "underline")) %>%
+  footnote(general = 'Angegeben sind Impfungen, die im Münchner Stadtgebiet erfolgt sind. Wie viele in München wohnhafte Personen sich außerhalb Münchens impfen ließen und umgekehrt, ist nicht bekannt. Impfungen durch Betriebs- oder Privatärzte werden aktuell noch nicht erfasst. Die Impfquoten beziehen sich auf eine Bevölkerungszahl von 1.250.071 / 1.319.090 Personen im Alter von 18+ / 12+ Jahren bzw. auf die Münchner Gesamtbevölkerung von 1.488.202 Personen (Stand: 31.12.2020). Da die Anzahl der durchgeführten Impfungen pro Altersgruppe nicht erfasst wird, wird die Impfquote der Personen im Alter von 18+ Jahren leicht überschätzt. Impfdurchbrüche sind definiert als Neuinfektionen > 14 Tage nach einer beliebigen Zweitimpfung oder einer Erstimpfung mit dem Impfstoff von Johnson & Johnson / Janssen-Cilag. Da die Anzahl der Erstimpfungen mit Johnson & Johnson / Janssen-Cilag nicht bekannt ist, wird der Quotient der Impfdurchbrüche näherungsweise bezogen auf die Gesamtzahl aller Personen, die vor > 14 Tagen eine Zweitimpfung erhalten haben, berechnet.',
+           general_title  = "Note: ",
+           title_format = c("italic", "underline"))
+
+```
+
+`r if(params$evalImpfungenKliniken){"******"}`
+`r if(params$evalImpfungenKliniken){"# Impfungen Klinikpersonal"}`
+
+```{r ImpfungenKliniken, echo=params$echoCode & params$evalImpfungenKliniken, eval=params$evalImpfungenKliniken}
+Impfungen_data_3d %>% 
+  dplyr::select(-ID) %>% 
+  mutate(Datum = format.Date(Datum, "%d.%m.%Y")) %>%
+  # Inzidenzen und kumulierte Summen zusammenfassen im Stil "<cumsum> (+<n>)"
+  mutate(Erstimpfung_Gesamtanzahl = Erstimpfung_Gesamtanzahl_MuenchenWohnend + Erstimpfung_Gesamtanzahl_AusserhalbMuenchenWohnend_InMuenchenGeimpft) %>%
+  mutate(Erstimpfung_Gesamtanzahl_kum = Erstimpfung_Gesamtanzahl_MuenchenWohnend_kum + Erstimpfung_Gesamtanzahl_AusserhalbMuenchenWohnend_InMuenchenGeimpft_kum) %>%
+  mutate(Erstimpfung_Gesamtanzahl = str_glue("{Erstimpfung_Gesamtanzahl_kum} (+{Erstimpfung_Gesamtanzahl})")) %>%
+  relocate(Erstimpfung_Gesamtanzahl) %>%
+  mutate(Erstimpfung_Gesamtanzahl_MuenchenWohnend = str_glue("{Erstimpfung_Gesamtanzahl_MuenchenWohnend_kum} (+{Erstimpfung_Gesamtanzahl_MuenchenWohnend})")) %>%
+  mutate(Erstimpfung_weiblich_MuenchenWohnend = str_glue("{Erstimpfung_weiblich_MuenchenWohnend_kum} (+{Erstimpfung_weiblich_MuenchenWohnend})")) %>%
+  mutate(Erstimpfung_maennlich_MuenchenWohnend = str_glue("{Erstimpfung_maennlich_MuenchenWohnend_kum} (+{Erstimpfung_maennlich_MuenchenWohnend})")) %>%
+  mutate(Erstimpfung_divers_MuenchenWohnend = str_glue("{Erstimpfung_divers_MuenchenWohnend_kum} (+{Erstimpfung_divers_MuenchenWohnend})")) %>%
+  mutate(Erstimpfung_Gesamtanzahl_AusserhalbMuenchenWohnend_InMuenchenGeimpft = str_glue("{Erstimpfung_Gesamtanzahl_AusserhalbMuenchenWohnend_InMuenchenGeimpft_kum} (+{Erstimpfung_Gesamtanzahl_AusserhalbMuenchenWohnend_InMuenchenGeimpft})")) %>%
+  mutate(Erstimpfung_weiblich_AusserhalbMuenchenWohnend_InMuenchenGeimpft = str_glue("{Erstimpfung_weiblich_AusserhalbMuenchenWohnend_InMuenchenGeimpft_kum} (+{Erstimpfung_weiblich_AusserhalbMuenchenWohnend_InMuenchenGeimpft})")) %>%
+  mutate(Erstimpfung_maennlich_AusserhalbMuenchenWohnend_InMuenchenGeimpft = str_glue("{Erstimpfung_maennlich_AusserhalbMuenchenWohnend_InMuenchenGeimpft_kum} (+{Erstimpfung_maennlich_AusserhalbMuenchenWohnend_InMuenchenGeimpft})")) %>%
+  mutate(Erstimpfung_divers_AusserhalbMuenchenWohnend_InMuenchenGeimpft = str_glue("{Erstimpfung_divers_AusserhalbMuenchenWohnend_InMuenchenGeimpft_kum} (+{Erstimpfung_divers_AusserhalbMuenchenWohnend_InMuenchenGeimpft})")) %>% 
+  mutate(Folgeimpfung_Gesamtanzahl = Folgeimpfung_Gesamtanzahl_MuenchenWohnend + Folgeimpfung_Gesamtanzahl_AusserhalbMuenchenWohnend_InMuenchenGeimpft) %>%
+  mutate(Folgeimpfung_Gesamtanzahl_kum = Folgeimpfung_Gesamtanzahl_MuenchenWohnend_kum + Folgeimpfung_Gesamtanzahl_AusserhalbMuenchenWohnend_InMuenchenGeimpft_kum) %>%
+  mutate(Folgeimpfung_Gesamtanzahl = str_glue("{Folgeimpfung_Gesamtanzahl_kum} (+{Folgeimpfung_Gesamtanzahl})")) %>%
+  relocate(Folgeimpfung_Gesamtanzahl, .after=Erstimpfung_divers_AusserhalbMuenchenWohnend_InMuenchenGeimpft) %>%
+  mutate(Folgeimpfung_Gesamtanzahl_MuenchenWohnend = str_glue("{Folgeimpfung_Gesamtanzahl_MuenchenWohnend_kum} (+{Folgeimpfung_Gesamtanzahl_MuenchenWohnend})")) %>%
+  mutate(Folgeimpfung_weiblich_MuenchenWohnend = str_glue("{Folgeimpfung_weiblich_MuenchenWohnend_kum} (+{Folgeimpfung_weiblich_MuenchenWohnend})")) %>%
+  mutate(Folgeimpfung_maennlich_MuenchenWohnend = str_glue("{Folgeimpfung_maennlich_MuenchenWohnend_kum} (+{Folgeimpfung_maennlich_MuenchenWohnend})")) %>%
+  mutate(Folgeimpfung_divers_MuenchenWohnend = str_glue("{Folgeimpfung_divers_MuenchenWohnend_kum} (+{Folgeimpfung_divers_MuenchenWohnend})")) %>%
+  mutate(Folgeimpfung_Gesamtanzahl_AusserhalbMuenchenWohnend_InMuenchenGeimpft = str_glue("{Folgeimpfung_Gesamtanzahl_AusserhalbMuenchenWohnend_InMuenchenGeimpft_kum} (+{Folgeimpfung_Gesamtanzahl_AusserhalbMuenchenWohnend_InMuenchenGeimpft})")) %>%
+  mutate(Folgeimpfung_weiblich_AusserhalbMuenchenWohnend_InMuenchenGeimpft = str_glue("{Folgeimpfung_weiblich_AusserhalbMuenchenWohnend_InMuenchenGeimpft_kum} (+{Folgeimpfung_weiblich_AusserhalbMuenchenWohnend_InMuenchenGeimpft})")) %>%
+  mutate(Folgeimpfung_maennlich_AusserhalbMuenchenWohnend_InMuenchenGeimpft = str_glue("{Folgeimpfung_maennlich_AusserhalbMuenchenWohnend_InMuenchenGeimpft_kum} (+{Folgeimpfung_maennlich_AusserhalbMuenchenWohnend_InMuenchenGeimpft})")) %>%
+  mutate(Folgeimpfung_divers_AusserhalbMuenchenWohnend_InMuenchenGeimpft = str_glue("{Folgeimpfung_divers_AusserhalbMuenchenWohnend_InMuenchenGeimpft_kum} (+{Folgeimpfung_divers_AusserhalbMuenchenWohnend_InMuenchenGeimpft})")) %>% 
+  # Kumulierte Spalten wurden verarbeitet und werden nicht mehr benötigt
+  dplyr::select(-ends_with("kum")) %>%
+  # Dataframe transponieren
+  pivot_longer(-Datum) %>% 
+  pivot_wider(names_from = Datum, values_from = value) %>%
+  # Zeilennamen vorbereiten
+  dplyr::select(-name) %>%
+  as.data.frame() %>%
+  magrittr::set_rownames(c(
+    "Erstimpfung gesamt",
+    "Erstimpfung: In München wohnend",
+    "- davon männlich",
+    "- davon weiblich",
+    "- davon divers",
+    "Erstimpfung: Außerhalb Münchens wohnend und in München geimpft",
+    # Leerzeichen am Schluss, damit jede Zeile einmalig ist
+    "- davon männlich ",
+    "- davon weiblich ",
+    "- davon divers ",
+    "Folgeimpfung gesamt",
+    "Folgeimpfung: In München wohnend",
+    "- davon männlich  ",
+    "- davon weiblich  ",
+    "- davon divers  ",
+    "Folgeimpfung: Außerhalb Münchens wohnend und in München geimpft",
+    "- davon männlich   ",
+    "- davon weiblich   ",
+    "- davon divers   "
+  )) %>%
+  # Ausgabe
+  kable() %>%
+  kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+  footnote(general = "Impfdokumentation über die BIK (Bayerisches Institut für Krankenhaus-Organisation und -Betriebsführung GmbH), eine Institution, die an die Bayerische Krankenhausgesellschaft (BKG) angegliedert ist. Die Impfungen, die über die BayIMCO (Bayerisches Impfmanagement gegen Corona) gemeldet werden, sind nicht enthalten.",
+           general_title  = "Quelle: ",
+           title_format = c("italic", "underline"))
+
+```
+
+`r if(params$evalBettenmeldung){"******"}`
+`r if(params$evalBettenmeldung){"# Bettenkapazitäten in Münchner Kliniken"}`
+
+```{r Bettenmeldung, echo=params$echoCode & params$evalBettenmeldung, eval=params$evalBettenmeldung}
+
+footnote_ivena <- paste(
+  "ICU: Intensivpflegebetten mit invasiver Beatmungsmöglichkeit für Erwachsene.",
+  "Max.-ICU-Betten: Ist-ICU-Betten zzgl. kurzfristig innerhalb von 48 Stunden bereitstellbarer Kapazitäten.",
+  "IMC: Behandlungsstufe zwischen Intensivstation und Normalstation.",
+  "Die Zahlen in den Klammern geben die Differenzen zum Vortag an.\n",
+  sep = "\n"
+)
+
+ivena_data %>% mutate(Kategorie=c(
+    'Ist-Betten',
+    'Max.-Betten (Ist-Betten + kurzfristig bereitstellbar)',
+    'Belegte Betten',
+    'Mit COVID-bestätigt',
+    'Mit COVID-Verdacht',
+    'Mit ECMO',
+    'Freie Ist-Betten',
+    'Für COVID',
+    'Mit ECMO'
+  )) %>% 
+  kable() %>%
+  kable_styling(
+    c("bordered", "condensed", "striped", "hover"), 
+    full_width = TRUE
+  ) %>%
+  add_indent(c(4,5,6,8,9)) %>%
+  footnote(
+    general = sprintf('IVENA, %s', format.Date(ivena_data_date, '%d.%m.%Y')),
+    general_title = "Quelle: ",
+    title_format = c("italic", "underline")
+  ) %>%
+  footnote(
+    general = footnote_ivena,
+    general_title = "Note: ",
+    title_format = c("italic", "underline")
+  )
+
+```
+
+`r if(params$evalPatientenumfeld){"******"}`
+`r if(params$evalPatientenumfeld){"# Patientenumfeld"}`
+
+```{r PatientenSetting, echo=params$echoCode & params$evalPatientenumfeld, eval=params$evalPatientenumfeld}
+
+
+## kable
+StatusPS_joined %>%
+  dplyr::select(Einrichtung, kumulativ, `davon akut Infizierte`) %>%
+  kable() %>%
+     kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+    footnote(general = "Gesundheitsreferat, Meldewesen",
+             general_title  = "Quelle: ",
+             title_format = c("italic", "underline")) %>%
+  footnote(general = "Die Anzahl der akut Infizierten ist definiert als die Summe der neu gemeldeten Infizierten der letzten 14 Tage.",
+           general_title  = "Note: ",
+           title_format = c("italic", "underline"))
+
+```
+
+`r if(params$evalKontaktumfeld){"******"}`
+`r if(params$evalKontaktumfeld){"# Kontaktumfeld"}`
+
+```{r KontaktSetting_tab, echo=params$echoCode & params$evalKontaktumfeld, eval=params$evalKontaktumfeld}
+
+## kable
+Infektionsort_tab %>%
+  kable() %>%
+  kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+  footnote(general = "Gesundheitsreferat, Meldewesen",
+           general_title  = "Quelle: ",
+           title_format = c("italic", "underline"))  %>% 
+  footnote(general = "Infektionsort der akut Infizierten Personen. Die Anzahl der akut Infizierten ist definiert als die Summe der neu gemeldeten Infizierten der letzten 14 Tage.",
+           general_title  = "Note: ",
+           title_format = c("italic", "underline"))
+
+
+```
+
+`r if(params$evalExpositionsland){"******"}`
+`r if(params$evalExpositionsland){"# Expositionsland"}`
+
+```{r Expositionsland, echo=params$echoCode & params$evalExpositionsland, eval=params$evalExpositionsland}
+
+## Exposure foreign country
+infected_withExposure <- sum(ExpLand_recent_tab$`akut Infizierte`)
+
+sum_actively_infected <- input_data %>%
+          arrange(Datum) %>%
+          filter(Datum > max(Datum)-15) %>%
+          mutate(activelyInfected = max(casesMunich)-min(casesMunich)) %>%
+          filter(Datum == max(Datum)) %>%
+          dplyr::select(activelyInfected) %>%
+            as.numeric()
+
+percentage_exposed <- round(
+  (infected_withExposure / sum_actively_infected) * 100, 
+  digits = 2)
+
+
+## kable
+ExpLand_recent_tab %>%
+  kable() %>%
+     kable_styling(c("bordered", "condensed", "striped", "hover"), full_width = TRUE) %>%
+    footnote(general = "Gesundheitsreferat, Meldewesen",
+             general_title  = "Quelle: ",
+             title_format = c("italic", "underline")) %>% 
+  footnote(general = paste0("Letzte bekannte Infektionsorte der akut infizierten Personen, sofern diese im Ausland lagen. Die Anzahl der akut Infizierten ist definiert als die Summe der neu gemeldeten Infizierten der letzten 14 Tage. Der Anteil der gesichert im Ausland infizierten Personen an den akut Infizierten beträgt ", percentage_exposed,"%. Da die Ermittlung der Infektionsorte bis zu eine Woche dauern kann, stellt diese Zahl vermutlich eine Unterschätzung des Anteils der tatsächlich im Ausland infizierten unter den akut infizierten Personen dar."),
+           general_title  = "Note: ",
+           title_format = c("italic", "underline"))
+
+```
+
+`r if(params$evalAbbildung1){"******"}`
+`r if(params$evalAbbildung1){"## Abbildung 1"}`
+
+```{r Fälle_plotly_Kum, echo=params$echoCode & params$evalAbbildung1, fig.align='center', eval=params$evalAbbildung1}
+
+## prepare cases data for plotly
+cases_plotly_data <- 
+  
+  new_cases_bfm_munich %>%
+  rename(Inz7days_MUC = Inz7days,
+         akut_infiziert_MUC = akut_infiziert) %>%
+  
+  full_join(
+    
+    new_cases_bfm_bavaria %>%
+      rename(Inz7days_BAY = Inz7days,
+             akut_infiziert_BAY = akut_infiziert)
+    
+    ,
+    
+    by = c('Datum')
+    
+  ) %>%
+  
+  full_join(
+    
+    new_cases_bfm_germany %>%
+      rename(Inz7days_GER = Inz7days,
+             akut_infiziert_GER = akut_infiziert)
+    ,
+    
+    by = c('Datum')
+    
+  ) %>%  
+  
+  arrange(Datum) %>%
+  
+  filter(Datum > min(new_cases_bfm_munich$Datum),
+         Datum > min(new_cases_bfm_bavaria$Datum),
+         Datum > min(new_cases_bfm_germany$Datum)
+         )
+
+
+## Cumulative Cases
+fig_KumCases <- plot_ly(cases_plotly_data, x = ~Datum, type = 'scatter', 
+                        y = ~casesMunichKum , name = 'München', mode = 'lines+markers') %>% 
+  add_trace(y = ~casesBavariaKum , name = 'Bayern', mode = 'lines+markers')  %>%
+  add_trace(y = ~casesGermanyKum , name = 'Deutschland', mode = 'lines+markers') %>%
+  layout(title = "Kumulative Fallzahlen",
+         xaxis = list(title = "Datum"),
+         yaxis = list (title = "Fallzahl", tickformat = "digits"))
+
+fig_KumCases
+
+```
+
+`r if(params$evalAbbildung2){"******"}`
+`r if(params$evalAbbildung2){"## Abbildung 2"}`
+
+```{r Fälle_plotly_Inz, echo=params$echoCode & params$evalAbbildung2, fig.align="center", eval=params$evalAbbildung2}
+
+## prepare cases data for plotly
+cases_plotly_data <- 
+  
+  new_cases_bfm_munich %>%
+  rename(Inz7days_MUC = Inz7days,
+         akut_infiziert_MUC = akut_infiziert) %>%
+  
+  full_join(
+    
+    new_cases_bfm_bavaria %>%
+      rename(Inz7days_BAY = Inz7days,
+             akut_infiziert_BAY = akut_infiziert)
+    
+    ,
+    
+    by = c('Datum')
+    
+  ) %>%
+  
+  full_join(
+    
+    
+    new_cases_bfm_germany %>%
+      rename(Inz7days_GER = Inz7days,
+             akut_infiziert_GER = akut_infiziert)
+    ,
+    
+    by = c('Datum')
+    
+  ) %>%   
+  
+  arrange(Datum) %>%
+  
+  filter(Datum > min(new_cases_bfm_munich$Datum),
+         Datum > min(new_cases_bfm_bavaria$Datum),
+         Datum > min(new_cases_bfm_germany$Datum)
+         )
+
+
+## Incidences
+fig_NewInf <- plot_ly(cases_plotly_data, x = ~Datum, type = 'scatter', 
+               y = ~casesMunich_Inz , name = 'München', mode = 'lines+markers') %>% 
+  add_trace(y = ~casesBavaria_Inz , name = 'Bayern', mode = 'lines+markers')  %>%
+  add_trace(y = ~casesGermany_Inz , name = 'Deutschland', mode = 'lines+markers') %>%
+  layout(title = "Neuinfektionen",
+         xaxis = list(title = "Datum"),
+         yaxis = list (title = "Fallzahl", tickformat = "digits"))
+
+fig_NewInf
+
+```
+
+`r if(params$evalAbbildung3){"******"}`
+`r if(params$evalAbbildung3){"## Abbildung 3"}`
+
+```{r CoVe_plotly, echo=params$echoCode & params$evalAbbildung3, fig.align='center', eval=params$evalAbbildung3}
+
+## prepare CoVe data for plotly
+baysim_plotly_data <- baysim_cases_total %>%
+  as.data.frame() %>%
+  arrange(as.Date(Datum)) %>%
+  filter(Datum >= as.Date('2020-08-14'))
+
+
+## KP
+fig_KontaktP <- plot_ly(baysim_plotly_data, x = ~Datum, type = 'scatter', 
+                        y = ~Kum_kategorie_KP, name = 'Ermittelte KP1 gesamt', mode = 'lines+markers') %>% 
+  add_trace(y = ~KP1_quarant_total , name = 'Ermittelte KP1 derzeit in Überwachung', mode = 'lines+markers') %>%
+  layout(title = "Kontaktpersonen",
+         xaxis = list(title = "Datum"),
+         yaxis = list (title = "Anzahl", tickformat = "digits"))
+
+fig_KontaktP
+
+```
+
+
+******
+
+Erstellt am `r format(Sys.Date(), "%d.%m.%Y")` von *Stabsstelle Versorgungsmanagement Gesundheit und Pflege, GSR-RL-VM*. 

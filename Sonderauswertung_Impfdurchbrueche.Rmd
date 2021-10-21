@@ -1,0 +1,148 @@
+---
+title: "&nbsp;"
+output:
+    html_document:
+      theme: united
+      highlight: tango
+      df_print: paged
+      toc_float: true
+      toc: true
+      toc_depth: 2
+params:
+    evalThirdParty: FALSE
+---
+
+```{r setup, include = FALSE}
+
+
+third_party <- params$evalThirdParty
+
+## path variables
+if (third_party ==  FALSE) {
+  
+  ## main path
+  path_tagesberichte <- "L:/Thematische-Ordner/Corona/R_Projekte/Tagesbericht/"
+  path_tagesberichte_branddir <- "M:/BFM/Austausch-RGU-BD/Reports_RGU/"
+  
+  source(paste0(path_tagesberichte, "scripts/22_path_variables.R"),
+         encoding = 'utf-8')
+  
+} else {
+  
+  ## main path
+  # path_tagesberichte <- "L:/Thematische-Ordner/Corona/R_Projekte/Tagesbericht/"
+  # path_tagesberichte_branddir <- "M:/BFM/Austausch-RGU-BD/Reports_RGU/"
+  
+}
+
+
+knitr::opts_knit$set(root.dir = wd_path)
+knitr::opts_chunk$set(echo = FALSE)
+
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(tidyr)
+library(magrittr)
+library(htmltools)
+library(ggplot2)
+library(reshape2)
+library(viridis)
+library(plotly)
+library(lubridate)
+
+# load data --------------------------------------------------------------------
+
+## set dummy for exports to BFM
+export_to_bmf <- FALSE
+
+## source data preparation script
+source(file = paste0(wd_path5, "11_daily_reports_data.R"), encoding = 'utf-8')
+
+## read data
+octo_data <-
+  readxl::read_excel(
+    paste0(wd_path2, "octoware.xlsx")
+  )
+
+octo_history <- 
+    readr::read_rds(
+    paste0(wd_path1, "octo_data_history.rds")
+  )
+
+```
+
+
+
+
+```{r Fall_Inz_Abs, echo = FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_sum_Inz', 
+  'age_6to10_sum_Inz',
+  'age_11to20_sum_Inz',
+  'age_21to40_sum_Inz',
+  'age_41to60_sum_Inz',
+  'age_61to80_sum_Inz',
+  'age_81plus_sum_Inz')
+
+## labels of categories
+category_labels <- c(
+  "0-5 Jahre", 
+  "6-10 Jahre", 
+  "11-20 Jahre",
+  "21-40 Jahre",
+  "41-60 Jahre",
+  "61-80 Jahre",
+  ">80 Jahre")
+
+## prepare data for stacked barplot
+input_data %>%
+  
+  ## get incidences
+  mutate(age_0to5_sum_Inz = c(0, diff(age_0to5_sum)),
+         age_6to10_sum_Inz = c(0, diff(age_6to10_sum)),
+         age_11to20_sum_Inz = c(0, diff(age_11to20_sum)),
+         age_21to40_sum_Inz = c(0, diff(age_21to40_sum)),
+         age_41to60_sum_Inz = c(0, diff(age_41to60_sum)),
+         age_61to80_sum_Inz = c(0, diff(age_61to80_sum)),
+         age_81plus_sum_Inz = c(0, diff(age_81plus_sum))
+         ) %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases  
+  filter(Datum >=  as.Date("2020-12-21")) %>%
+  filter(Datum <=  as.Date("2021-04-04")) %>%
+  mutate(firstDayOfWeek = lubridate::floor_date(Datum, unit = "week", week_start = 1)) %>%
+  group_by(firstDayOfWeek, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+
+  ## plot data
+  ggplot(., aes(x = firstDayOfWeek, y = n, fill = variable)) + 
+    geom_bar(position = "stack", stat = "identity") +
+    ggtitle("Anzahl Neuinfektionen pro Kalenderwoche") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + 
+  labs(x = "Kalenderwoche", y = "") +
+    scale_x_date(date_labels = "%V / %G", 
+                 breaks = c(as.Date("2020-12-21"), as.Date("2020-12-28"),
+                            as.Date("2021-01-04"), as.Date("2021-01-11"),
+                            as.Date("2021-01-18"), as.Date("2021-01-25"),
+                            as.Date("2021-02-01"), as.Date("2021-02-08"),
+                            as.Date("2021-02-15"), as.Date("2021-02-22"),
+                            as.Date("2021-03-01"), as.Date("2021-03-08"),
+                            as.Date("2021-03-15"), as.Date("2021-03-22"),
+                            as.Date("2021-03-29"))) +
+    scale_fill_brewer(palette = "Blues",
+                      direction = -1,
+                      name = "Altersgruppe", 
+                      breaks = rev(focal_vars),
+                      labels = rev(category_labels))
+```    
+

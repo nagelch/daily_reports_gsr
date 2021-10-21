@@ -1,0 +1,565 @@
+---
+title: "&nbsp;"
+output:
+    html_document:
+      theme: united
+      highlight: tango
+      df_print: paged
+      toc_float: true
+      toc: true
+      toc_depth: 2
+params:
+    evalThirdParty: FALSE
+---
+
+```{r setup, include = FALSE}
+
+
+third_party <- params$evalThirdParty
+
+## path variables
+if (third_party ==  FALSE) {
+  
+  ## main path
+  path_tagesberichte <- "L:/Thematische-Ordner/Corona/R_Projekte/Tagesbericht/"
+  path_tagesberichte_branddir <- "M:/BFM/Austausch-RGU-BD/Reports_RGU/"
+  
+  source(paste0(path_tagesberichte, "scripts/22_path_variables.R"),
+         encoding = 'utf-8')
+  
+} else {
+  
+  ## main path
+  # path_tagesberichte <- "L:/Thematische-Ordner/Corona/R_Projekte/Tagesbericht/"
+  # path_tagesberichte_branddir <- "M:/BFM/Austausch-RGU-BD/Reports_RGU/"
+  
+}
+
+
+knitr::opts_knit$set(root.dir = wd_path)
+knitr::opts_chunk$set(echo = FALSE)
+
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(tidyr)
+library(magrittr)
+library(htmltools)
+library(ggplot2)
+library(reshape2)
+library(viridis)
+library(plotly)
+library(lubridate)
+
+# load data --------------------------------------------------------------------
+
+## set dummy for exports to BFM
+export_to_bmf <- FALSE
+
+## source data preparation script
+source(file = paste0(wd_path5, "11_daily_reports_data.R"), encoding = 'utf-8')
+
+## read data
+octo_data <-
+  readxl::read_excel(
+    paste0(wd_path2, "octoware.xlsx")
+  )
+
+octo_history <- 
+    readr::read_rds(
+    paste0(wd_path1, "octo_data_history.rds")
+  )
+
+```
+
+
+
+# Sonderauswertung Gesundheitsbeirat
+
+## Entwicklung der täglichen Fallzahlen
+```{r Fall_Inz_Abs, echo = FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_sum_Inz', 
+  'age_6to10_sum_Inz',
+  'age_11to20_sum_Inz',
+  'age_21to40_sum_Inz',
+  'age_41to60_sum_Inz',
+  'age_61to80_sum_Inz',
+  'age_81plus_sum_Inz')
+
+## labels of categories
+category_labels <- c(
+  "0-5 Jahre", 
+  "6-10 Jahre", 
+  "11-20 Jahre",
+  "21-40 Jahre",
+  "41-60 Jahre",
+  "61-80 Jahre",
+  ">80 Jahre")
+
+## prepare data for stacked barplot
+input_data %>%
+  
+  ## get incidences
+  mutate(age_0to5_sum_Inz = c(0, diff(age_0to5_sum)),
+         age_6to10_sum_Inz = c(0, diff(age_6to10_sum)),
+         age_11to20_sum_Inz = c(0, diff(age_11to20_sum)),
+         age_21to40_sum_Inz = c(0, diff(age_21to40_sum)),
+         age_41to60_sum_Inz = c(0, diff(age_41to60_sum)),
+         age_61to80_sum_Inz = c(0, diff(age_61to80_sum)),
+         age_81plus_sum_Inz = c(0, diff(age_81plus_sum))
+         ) %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases  
+  filter(Datum >=  as.Date("2020-03-02")) %>%
+  mutate(firstDayOfWeek = lubridate::floor_date(Datum, unit = "week", week_start = 1)) %>%
+  group_by(firstDayOfWeek, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+
+  ## plot data
+  ggplot(., aes(x = firstDayOfWeek, y = n, fill = variable)) + 
+    geom_bar(position = "stack", stat = "identity") +
+    geom_vline(xintercept = as.Date("2021-01-01"),
+             linetype = "dotted", 
+             color = "steelblue", 
+             size = 1) + 
+    ggtitle("Fallzahlen pro Woche (absolut)") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + 
+  labs(x = "Kalenderwoche", y = "Fallzahl") +
+    scale_x_date(date_labels = "%V / %G", date_breaks = "6 weeks") + 
+    scale_fill_viridis(name = "Altersgruppe", 
+                      breaks = rev(focal_vars),
+                      labels = rev(category_labels),
+                      discrete = TRUE)
+```    
+
+
+```{r Fall_Inz_Pro, echo = FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_sum_Inz', 
+  'age_6to10_sum_Inz',
+  'age_11to20_sum_Inz',
+  'age_21to40_sum_Inz',
+  'age_41to60_sum_Inz',
+  'age_61to80_sum_Inz',
+  'age_81plus_sum_Inz')
+
+## labels of categories
+category_labels <- c(
+  "0-5 Jahre", 
+  "6-10 Jahre", 
+  "11-20 Jahre",
+  "21-40 Jahre",
+  "41-60 Jahre",
+  "61-80 Jahre",
+  ">80 Jahre")
+
+## prepare data for stacked barplot
+input_data %>%
+  
+  ## get incidences
+  mutate(age_0to5_sum_Inz = c(0, diff(age_0to5_sum)),
+         age_6to10_sum_Inz = c(0, diff(age_6to10_sum)),
+         age_11to20_sum_Inz = c(0, diff(age_11to20_sum)),
+         age_21to40_sum_Inz = c(0, diff(age_21to40_sum)),
+         age_41to60_sum_Inz = c(0, diff(age_41to60_sum)),
+         age_61to80_sum_Inz = c(0, diff(age_61to80_sum)),
+         age_81plus_sum_Inz = c(0, diff(age_81plus_sum))
+         ) %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases and convert to percentages  
+  filter(Datum >=  as.Date("2020-03-02")) %>%
+  mutate(firstDayOfWeek = lubridate::floor_date(Datum, unit = "week", week_start = 1)) %>%
+  group_by(firstDayOfWeek, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+  mutate(percentage = n / sum(n)) %>%
+  mutate(percentage = percentage*100) %>%
+
+  ## plot data
+  ggplot(., aes(x = firstDayOfWeek, y = percentage, fill = variable)) + 
+    geom_area(alpha = 1 , size = 0.5, colour = "white") +
+    geom_vline(xintercept = as.Date("2021-01-01"),
+             linetype = "dotted", 
+             color = "steelblue", 
+             size = 1) + 
+    theme_bw() + 
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + 
+    ggtitle("Fallzahlen pro Woche (prozentual)") +
+  labs(x = "Kalenderwoche", y = "Prozent") +
+  scale_x_date(date_labels = "%V / %G", date_breaks = "6 weeks") + 
+  scale_fill_viridis(name = "Altersgruppe",
+                      breaks = rev(focal_vars),
+                      labels = rev(category_labels),
+                      discrete = TRUE)
+  
+    
+```    
+
+
+## Entwicklung der kumulativen Fallzahlen
+```{r Fall_Kum_Abs, echo = FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_sum', 
+  'age_6to10_sum',
+  'age_11to20_sum',
+  'age_21to40_sum',
+  'age_41to60_sum',
+  'age_61to80_sum',
+  'age_81plus_sum')
+
+## labels of categories
+category_labels <- c(
+  "0-5 Jahre", 
+  "6-10 Jahre", 
+  "11-20 Jahre",
+  "21-40 Jahre",
+  "41-60 Jahre",
+  "61-80 Jahre",
+  ">80 Jahre")
+
+## prepare data for stacked barplot
+input_data %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases  
+  filter(Datum >=  as.Date("2020-03-02") & Datum <=  floor_date(Sys.Date(), "week")) %>%
+  mutate(firstDayOfWeek = lubridate::floor_date(Datum, unit = "week", week_start = 1)) %>%
+  group_by(firstDayOfWeek, variable) %>%
+  summarise(n = sum(value)/7, .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+
+  ## plot data
+  ggplot(., aes(x = firstDayOfWeek, y = n, fill = variable)) + 
+    geom_bar(position = "stack", stat = "identity") +
+    geom_vline(xintercept = as.Date("2021-01-01"),
+             linetype = "dotted", 
+             color = "steelblue", 
+             size = 1) + 
+    ggtitle("Fallzahlen kumulativ (absolut)") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + 
+  labs(x = "Kalenderwoche", y = "Fallzahl") +
+    scale_x_date(date_labels = "%V / %G", date_breaks = "6 weeks") + 
+    scale_fill_viridis(name = "Altersgruppe", 
+                      breaks =  rev(focal_vars),
+                      labels = rev(category_labels),
+                      discrete = TRUE)
+```    
+
+
+```{r Fall_Kum_Pro, echo = FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_sum', 
+  'age_6to10_sum',
+  'age_11to20_sum',
+  'age_21to40_sum',
+  'age_41to60_sum',
+  'age_61to80_sum',
+  'age_81plus_sum')
+
+## labels of categories
+category_labels <- c(
+  "0-5 Jahre", 
+  "6-10 Jahre", 
+  "11-20 Jahre",
+  "21-40 Jahre",
+  "41-60 Jahre",
+  "61-80 Jahre",
+  ">80 Jahre")
+
+## prepare data for stacked barplot
+input_data %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases and convert to percentages  
+  filter(Datum >=  as.Date("2020-03-02")) %>%
+  mutate(firstDayOfWeek = lubridate::floor_date(Datum, unit = "week", week_start = 1)) %>%
+  group_by(firstDayOfWeek, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+  mutate(percentage = n / sum(n)) %>%
+  mutate(percentage = percentage*100) %>%
+
+  ## plot data
+  ggplot(., aes(x = firstDayOfWeek, y = percentage, fill = variable)) + 
+    geom_area(alpha = 1 , size = 0.5, colour = "white") +
+    geom_vline(xintercept = as.Date("2021-01-01"),
+             linetype = "dotted", 
+             color = "steelblue", 
+             size = 1) + 
+
+    theme_bw() + 
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + 
+    ggtitle("Fallzahlen kumulativ (prozentual)") +
+  labs(x = "Kalenderwoche", y = "Prozent") +
+  scale_x_date(date_labels = "%V / %G", date_breaks = "6 weeks") + 
+  scale_fill_viridis(name = "Altersgruppe",
+                      breaks = rev(focal_vars),
+                      labels = rev(category_labels),
+                      discrete = TRUE)
+  
+    
+```    
+
+## 7-Tage-Inzidenz
+```{r 7d_Inz_All, echo = FALSE}
+
+## Bevölkerung München / 100.000
+bev_muc <- 1484226/100000
+
+
+input_data %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = "casesMunich_Inz"
+       ) %>%
+  
+  ## count cases  
+  filter(Datum >=  as.Date("2020-03-02")) %>%
+  mutate(firstDayOfWeek = lubridate::floor_date(Datum, unit = "week", week_start = 1)) %>%
+  group_by(firstDayOfWeek) %>%
+  summarise(n = sum(value)/bev_muc, .groups = 'drop_last') %>%
+
+  ## plot data
+  ggplot(., aes(x = firstDayOfWeek, y = n)) + 
+    geom_line(position = "identity", stat = "identity", show.legend = FALSE, 
+              colour = "black", lwd = 1.5) +
+    geom_vline(xintercept = as.Date("2021-01-01"),
+             linetype = "dotted", 
+             color = "steelblue", 
+             size = 1) + 
+    ggtitle("7-Tage-Inzidenz") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + 
+  labs(x = "Kalenderwoche", y = "7-Tage-Inzidenz/100.000") +
+    scale_x_date(date_labels = "%V / %G", date_breaks = "6 weeks")  
+
+
+```   
+
+```{r 7d_Inz_Age, echo = FALSE}
+
+## Bevölkerung München / 100.000 in Altersgruppen nach DESTATIS
+pop_muc_0to19 <- (49460 + 43810 + 51007 + 58467 + 33026 + 25469) / 100000
+pop_muc_20to39 <- (94262 + 134897 + 140846 + 119702) / 100000
+pop_muc_40to59 <- (101804 + 97814 + 107844 + 93744) / 100000
+pop_muc_60plus <- (72989 + 119222 + 139863) / 100000
+
+## Altersgruppen an DESTATIS-Kategorien angepasst
+octo_Inz_DESTATIS <-
+  octo_history %>%
+	group_by(Erstmeldung) %>%
+	summarise(age_0to19_sum_Inz = 
+	            sum(Alter_Erstmeldung < 20, na.rm = TRUE),
+	          age_20to39_sum_Inz = 
+	            sum(Alter_Erstmeldung >= 20 & Alter_Erstmeldung < 40, na.rm = TRUE),
+	          age_40to59_sum_Inz = 
+	            sum(Alter_Erstmeldung >= 40 & Alter_Erstmeldung < 60, na.rm = TRUE),
+	          age_60plus_sum_Inz = 
+	            sum(Alter_Erstmeldung >= 60, na.rm = TRUE)) %>%
+  mutate(Datum = as.Date(Erstmeldung, format = "%d.%m.%Y")) %>%
+  mutate(age_0to19_Pro_Inz = age_0to19_sum_Inz/pop_muc_0to19) %>%
+  mutate(age_20to39_Pro_Inz = age_20to39_sum_Inz/pop_muc_20to39) %>%
+  mutate(age_40to59_Pro_Inz = age_40to59_sum_Inz/pop_muc_40to59) %>%
+  mutate(age_60plus_Pro_Inz = age_60plus_sum_Inz/pop_muc_60plus) 
+
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to19_Pro_Inz', 
+  'age_20to39_Pro_Inz',
+  'age_40to59_Pro_Inz',
+  'age_60plus_Pro_Inz'
+  )
+
+## labels of categories
+category_labels <- c(
+  "0-19 Jahre", 
+  "20-39 Jahre", 
+  "40-59 Jahre",
+  "60+ Jahre")
+
+## prepare data for stacked barplot
+octo_Inz_DESTATIS %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases  
+  filter(Datum >=  as.Date("2020-03-02")) %>%
+  mutate(firstDayOfWeek = lubridate::floor_date(Datum, unit = "week", week_start = 1)) %>%
+  group_by(firstDayOfWeek, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+
+  ## plot data
+  ggplot(., aes(x = firstDayOfWeek, y = n, colour = variable)) + 
+    geom_line(position = "identity", stat = "identity", lwd = 1.5) +
+    geom_vline(xintercept = as.Date("2021-01-01"),
+             linetype = "dotted", 
+             color = "steelblue", 
+             size = 1) + 
+    ggtitle("7-Tage-Inzidenz") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + 
+  labs(x = "Kalenderwoche", y = "7-Tage-Inzidenz/100.000") +
+    scale_x_date(date_labels = "%V / %G", date_breaks = "6 weeks") + 
+    scale_colour_colorblind(name = "Altersgruppe", 
+                            breaks = rev(focal_vars),
+                            labels = rev(category_labels))
+
+```   
+
+## Entwicklung der Todesfälle
+```{r Tod_Inz, echo = FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_sum_dead_Inz', 
+  'age_6to10_sum_dead_Inz',
+  'age_11to20_sum_dead_Inz',
+  'age_21to40_sum_dead_Inz',
+  'age_41to60_sum_dead_Inz',
+  'age_61to80_sum_dead_Inz',
+  'age_81plus_sum_dead_Inz')
+
+## labels of categories
+category_labels <- c(
+  "0-5 Jahre", 
+  "6-10 Jahre", 
+  "11-20 Jahre",
+  "21-40 Jahre",
+  "41-60 Jahre",
+  "61-80 Jahre",
+  ">80 Jahre")
+
+## prepare data for stacked barplot
+input_data %>%
+  
+  ## get incidences
+  mutate(age_0to5_sum_dead_Inz = c(0, diff(age_0to5_sum_dead)),
+         age_6to10_sum_dead_Inz = c(0, diff(age_6to10_sum_dead)),
+         age_11to20_sum_dead_Inz = c(0, diff(age_11to20_sum_dead)),
+         age_21to40_sum_dead_Inz = c(0, diff(age_21to40_sum_dead)),
+         age_41to60_sum_dead_Inz = c(0, diff(age_41to60_sum_dead)),
+         age_61to80_sum_dead_Inz = c(0, diff(age_61to80_sum_dead)),
+         age_81plus_sum_dead_Inz = c(0, diff(age_81plus_sum_dead))
+         ) %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases  
+  filter(Datum >=  as.Date("2020-03-02")) %>%
+  mutate(firstDayOfWeek = lubridate::floor_date(Datum, unit = "week", week_start = 1)) %>%
+  group_by(firstDayOfWeek, variable) %>%
+  summarise(n = sum(value), .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+
+  ## plot data
+  ggplot(., aes(x = firstDayOfWeek, y = n, fill = variable)) + 
+    geom_bar(position = "stack", stat = "identity") +
+    geom_vline(xintercept = as.Date("2021-01-01"),
+             linetype = "dotted", 
+             color = "steelblue", 
+             size = 1) + 
+    ggtitle("Todesfälle pro Woche") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + 
+  labs(x = "Kalenderwoche", y = "Fallzahl") +
+    scale_x_date(date_labels = "%V / %G", date_breaks = "6 weeks") + 
+    scale_fill_viridis(name = "Altersgruppe", 
+                      breaks =  rev(focal_vars),
+                      labels = rev(category_labels),
+                      discrete = TRUE)
+```    
+
+```{r Tod_Kum, echo = FALSE}
+
+## variables of interest
+focal_vars <- c( 
+  'age_0to5_sum_dead', 
+  'age_6to10_sum_dead',
+  'age_11to20_sum_dead',
+  'age_21to40_sum_dead',
+  'age_41to60_sum_dead',
+  'age_61to80_sum_dead',
+  'age_81plus_sum_dead')
+
+## labels of categories
+category_labels <- c(
+  "0-5 Jahre", 
+  "6-10 Jahre", 
+  "11-20 Jahre",
+  "21-40 Jahre",
+  "41-60 Jahre",
+  "61-80 Jahre",
+  ">80 Jahre")
+
+## prepare data for stacked barplot
+input_data %>%
+  
+  melt(data = ., 
+       id.vars = "Datum", 
+       measure.vars = focal_vars
+       ) %>%
+  
+  ## count cases  
+  filter(Datum >=  as.Date("2020-03-02") & Datum <=  floor_date(Sys.Date(), "week")) %>%
+  mutate(firstDayOfWeek = lubridate::floor_date(Datum, unit = "week", week_start = 1)) %>%
+  group_by(firstDayOfWeek, variable) %>%
+  summarise(n = sum(value)/7, .groups = 'drop_last') %>%
+  mutate(variable = factor(variable, levels = rev(focal_vars))) %>%
+
+  ## plot data
+  ggplot(., aes(x = firstDayOfWeek, y = n, fill = variable)) + 
+    geom_bar(position = "stack", stat = "identity") +
+    geom_vline(xintercept = as.Date("2021-01-01"),
+             linetype = "dotted", 
+             color = "steelblue", 
+             size = 1) + 
+    ggtitle("Todesfälle kumulativ") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + 
+  labs(x = "Kalenderwoche", y = "Fallzahl") +
+    scale_x_date(date_labels = "%V / %G", date_breaks = "6 weeks") + 
+    scale_fill_viridis(name = "Altersgruppe", 
+                      breaks =  rev(focal_vars),
+                      labels = rev(category_labels),
+                      discrete = TRUE)
+    
+```    
