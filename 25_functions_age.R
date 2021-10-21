@@ -466,9 +466,14 @@ add_vaccination_status <- function(input_data, vacc_status. = 'alle') {
     
     ## prepare status
     mutate(vollstaendig_geimpft = ifelse(
-      (Anzahl_Impfungen >= 2) & (time_since_vacc > 14), 1, 0), ) %>%
+      (Anzahl_Impfungen >= 2 | Merkmal_Impfstoff == 
+         "vektorbasiert (Johnson&Johnson bzw. Janssen-Cilag)") & 
+        (time_since_vacc > 14), 1, 0), ) %>%
     mutate(einmal_geimpft  = ifelse(
-      (((Anzahl_Impfungen == 1) & (time_since_vacc > 14)) | 
+      (((Anzahl_Impfungen == 1 & 
+           Merkmal_Impfstoff != 
+           "vektorbasiert (Johnson&Johnson bzw. Janssen-Cilag)") & 
+          (time_since_vacc > 14)) | 
          ((Anzahl_Impfungen >= 2) & (time_since_vacc <= 14)) |
          ((Anzahl_Impfungen >= 2) & (is.na(time_since_vacc)))), 1, 0), ) %>%
     mutate(ungeimpft = ifelse(((vacc_known == 1 & einmal_geimpft == 0 & 
